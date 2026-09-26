@@ -4,6 +4,7 @@
   const TRACKED_KEY = "preisscan.trackedIds.v3";
   const LOCATION_KEY = "preisscan.location.v1";
   const LEGACY_EXTRA_KEY = "preisscan.trackedExtra.v1";
+  const API = window.PREISSCAN_API;
 
   function loadJSON(key, fallback){
     try{
@@ -31,7 +32,20 @@
     location: localStorage.getItem(LOCATION_KEY) || "",
     locationEditing: !(localStorage.getItem(LOCATION_KEY) || ""),
     currentView: "overview",
-    familyQuery: ""
+    familyQuery: "",
+    backend: {
+      connected:false,
+      syncing:false,
+      health:null,
+      meta:null,
+      retailers:[],
+      products:[],
+      details:new Map(),
+      productIdByLocal:new Map(),
+      localIdByBackend:new Map(),
+      marketStatesByLocal:new Map(),
+      futureOffers:[]
+    }
   };
   saveJSON(TRACKED_KEY, state.trackedIds);
 
@@ -46,8 +60,221 @@
     install: document.getElementById("installBtn"),
     toast: document.getElementById("toast"),
     locationBar: document.getElementById("locationBar"),
-    locationSummary: document.getElementById("locationSummary")
+    locationSummary: document.getElementById("locationSummary"),
+    settingsView: document.getElementById("settingsView"),
+    backendBadge: document.getElementById("backendBadge"),
+    backendFooter: document.getElementById("backendFooter")
   };
+
+  const IMAGE_KEY_TO_LOCAL = {
+    "coca-cola-zero-125":"coke125",
+    "coca-cola-zero-150":"coke150",
+    "monster-rossi-500":"monster-rossi"
+  };
+
+  function familyNameFor(product){
+    if(product.family === "hackfleisch-gemischt") return "Gemischtes Hackfleisch";
+    if(product.family === "coca-cola-zero") return "Coca-Cola Zero";
+    if(product.family === "monster-rossi") return "Monster Energy Rossi Edition";
+    return product.name;
+  }
+
+  function comparisonModeFor(product){
+    if(product.family === "hackfleisch-gemischt") return "family";
+    if(product.family === "monster-rossi") return "exact";
+    return "exact_or_family";
+  }
+
+  function localIdForBackendProduct(item){
+    if(item.image_key && IMAGE_KEY_TO_LOCAL[item.image_key]) return IMAGE_KEY_TO_LOCAL[item.image_key];
+    const amount = Number(item.amount_value);
+    const byCatalog = [...DATA.products, ...DATA.catalog].find(p =>
+      normalize(p.name) === normalize(item.name) &&
+      Number(p.amount) === amount &&
+      normalize(p.unit) === normalize(item.amount_unit)
+    );
+    return byCatalog?.id || `backend-${item.id}`;
+  }
+
+  function backendProductToLocal(item){
+    const localId = localIdForBackendProduct(item);
+    const existing = DATA.products.find(p=>p.id===localId) || DATA.catalog.find(p=>p.id===localId);
+    if(existing){
+      return {
+        ...existing,
+        backendId:item.id,
+        ean:item.gtin || existing.ean || null,
+        defaultAlarm:item.target_price_cents == null ? existing.defaultAlarm ?? null : item.target_price_cents / 100
+      };
+    }
+    const amount = Number(item.amount_value || 0);
+    const unit = item.amount_unit || "";
+    const size = item.variant || (amount ? `${String(amount).replace(".",",")} ${unit}` : "");
+    return {
+      id:localId,
+      backendId:item.id,
+      family:item.family_slug || `backend-family-${item.family_id || "x"}`,
+      name:item.name,
+      size,
+      packageType:item.package_type || "",
+      unitType:unit === "g" || unit === "kg" ? "weight" : "volume",
+      amount,
+      unit,
+      ean:item.gtin || null,
+      image:null,
+      imageLabel:`${item.name} ${size}`,
+      defaultAlarm:item.target_price_cents == null ? null : item.target_price_cents / 100,
+      marketStates:{}
+    };
+  }
+
+  function backendIdForLocal(localId){
+    return state.backend.productIdByLocal.get(localId) || null;
+  }
+
+  function updateBackendStatus(){
+    const connected = state.backend.connected;
+    if(els.backendBadge){
+      els.backendBadge.className = `backend-badge ${connected ? "online" : state.backend.syncing ? "pending" : "offline"}`;
+      els.backendBadge.textContent = connected ? "Backend online" : state.backend.syncing ? "Backend wird geprüft" : "Backend offline";
+    }
+    if(els.backendFooter){
+      els.backendFooter.textContent = connected
+        ? `Backend verbunden · API ${state.backend.health?.api_version || ""}`.trim()
+        : "Backend nicht erreichbar · lokale Daten aktiv";
+    }
+  }
+
+  function retailerSlugToMarketId(slug, row={}){
+    if(slug === "aldi-sued") return "aldi";
+    if(slug === "scheck-in") return "scheck-bruehl";
+    if(slug === "marktkauf"){
+      const text = normalize(`${row.store_name || ""} ${row.city || ""}`);
+      if(text.includes("wohlgelegen")) return "mk-wohl";
+      if(text.includes("neckarau")) return "mk-neck";
+      return "marktkauf";
+    }
+    return DATA.markets.some(m=>m.id===slug) ? slug : null;
+  }
+
+  function mergeBackendPrices(localProduct, rows){
+    if(!Array.isArray(rows) || !rows.length) return;
+    const byMarket = new Map();
+    const future = [];
+    const today = new Date(); today.setHours(0,0,0,0);
+    rows.forEach(row=>{
+      const marketId = retailerSlugToMarketId(row.retailer_slug,row);
+      if(!marketId || row.price_eur == null) return;
+      const from = row.valid_from ? new Date(`${row.valid_from}T00:00:00`) : null;
+      const isFuture = from && from.getTime() > today.getTime();
+      if(isFuture){
+        future.push({
+          productId:localProduct.id,
+          marketId,
+          price:Number(row.price_eur),
+          validFrom:`ab ${new Intl.DateTimeFormat("de-DE").format(from)}`,
+          validUntil:row.valid_to || "",
+          type:row.price_type || "offer",
+          source:row.source_name || "Preisscan Backend",
+          note:row.condition_label || ""
+        });
+        return;
+      }
+      if(!byMarket.has(marketId)) byMarket.set(marketId,[]);
+      byMarket.get(marketId).push(row);
+    });
+    for(const [marketId,items] of byMarket){
+      const localId = localProduct.id;
+      const currentStates = state.backend.marketStatesByLocal.get(localId) || {};
+      currentStates[marketId] = {
+        status:"price",
+        checked:items.map(x=>x.observed_at).filter(Boolean).sort().at(-1) || null,
+        source:items.find(x=>x.source_name)?.source_name || "Preisscan Backend",
+        validFrom:items.find(x=>x.valid_from)?.valid_from || null,
+        validUntil:items.find(x=>x.valid_to)?.valid_to || null,
+        prices:items.map(x=>({
+          type:x.price_type || "regular",
+          value:Number(x.price_eur),
+          label:x.price_type === "app" ? "App-Preis" : x.price_type === "coupon" ? "Coupon" : x.price_type === "offer" ? "Angebot" : "Regulär",
+          requirement:x.condition_label || null
+        }))
+      };
+      state.backend.marketStatesByLocal.set(localId,currentStates);
+    }
+    state.backend.futureOffers.push(...future);
+  }
+
+  async function syncBackend(showMessage=false){
+    if(!API) return;
+    state.backend.syncing = true;
+    updateBackendStatus();
+    try{
+      const [health,meta,productsResult,retailerResult] = await Promise.all([
+        API.health(), API.meta(), API.products(), API.retailers()
+      ]);
+      state.backend.health = health;
+      state.backend.meta = meta;
+      state.backend.retailers = retailerResult.retailers || [];
+      state.backend.products = productsResult.products || [];
+      state.backend.details = new Map();
+      state.backend.productIdByLocal = new Map();
+      state.backend.localIdByBackend = new Map();
+      state.backend.marketStatesByLocal = new Map();
+      state.backend.futureOffers = [];
+
+      for(const item of state.backend.products){
+        const localId = localIdForBackendProduct(item);
+        state.backend.productIdByLocal.set(localId,item.id);
+        state.backend.localIdByBackend.set(item.id,localId);
+        if(item.tracked === 1 && !state.trackedIds.includes(localId)) state.trackedIds.push(localId);
+        if((item.tracked === 0 || item.tracked == null) && state.trackedIds.includes(localId) && !String(localId).startsWith("backend-")){
+          // Bekannte Backend-Produkte folgen dem zentralen Trackingstatus.
+          state.trackedIds = state.trackedIds.filter(x=>x!==localId);
+        }
+      }
+      saveTracked();
+
+      const trackedBackend = state.backend.products.filter(x=>x.tracked === 1);
+      const details = await Promise.all(trackedBackend.map(x=>API.product(x.id).catch(()=>null)));
+      details.filter(Boolean).forEach(detail=>{
+        const localId = state.backend.localIdByBackend.get(detail.product.id);
+        if(!localId) return;
+        state.backend.details.set(detail.product.id,detail);
+        const product = productById(localId);
+        if(product) mergeBackendPrices(product,detail.prices || []);
+      });
+
+      state.backend.connected = health?.ok === true && health?.database === "connected";
+      if(showMessage) showToast(`Backend verbunden · ${health.products ?? 0} Produkte in D1.`);
+    }catch(error){
+      state.backend.connected = false;
+      if(showMessage) showToast(`Backend nicht erreichbar: ${error.message}`);
+    }finally{
+      state.backend.syncing = false;
+      updateBackendStatus();
+      rebuildFilter();
+      renderAll();
+    }
+  }
+
+  function ensurePayload(product, track=true){
+    const alarm = getAlarm(product);
+    return {
+      gtin:product.ean || null,
+      family_slug:product.family || null,
+      family_name:familyNameFor(product),
+      comparison_mode:comparisonModeFor(product),
+      brand:product.name.includes("Coca-Cola") ? "Coca-Cola" : product.name.includes("Monster") ? "Monster Energy" : null,
+      name:product.name,
+      variant:product.size,
+      amount_value:product.amount ?? null,
+      amount_unit:product.unit || null,
+      package_type:product.packageType || null,
+      image_key:product.id === "coke125" ? "coca-cola-zero-125" : product.id === "coke150" ? "coca-cola-zero-150" : product.id === "monster-rossi" ? "monster-rossi-500" : product.id,
+      track,
+      target_price_cents:alarm == null || alarm === "" ? null : Math.round(Number(alarm)*100)
+    };
+  }
 
   function saveSettings(){ saveJSON(SETTINGS_KEY, state.settings); }
   function saveTracked(){ saveJSON(TRACKED_KEY, state.trackedIds); }
@@ -72,10 +299,16 @@
   }
 
   function productById(id){
-    return DATA.products.find(p=>p.id===id) || (()=>{
+    const base = DATA.products.find(p=>p.id===id) || (()=>{
       const item = DATA.catalog.find(x=>x.id===id);
       return item ? catalogToProduct(item) : null;
     })();
+    const backendItem = state.backend.products.find(x=>localIdForBackendProduct(x)===id);
+    const backendStates = state.backend.marketStatesByLocal.get(id) || {};
+    if(base && backendItem) return {...base, ...backendProductToLocal(backendItem), marketStates:{...(base.marketStates || {}), ...backendStates}};
+    if(base) return {...base, marketStates:{...(base.marketStates || {}), ...backendStates}};
+    if(backendItem) return {...backendProductToLocal(backendItem), marketStates:backendStates};
+    return null;
   }
 
   function trackedProducts(){
@@ -84,20 +317,57 @@
 
   function isTracked(id){ return state.trackedIds.includes(id); }
 
-  function addTracked(id){
+  async function addTracked(id){
     if(isTracked(id)) return;
-    if(!productById(id)) return;
+    const product = productById(id);
+    if(!product) return;
+    if(state.backend.connected){
+      if(!API.hasToken()){
+        showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern.");
+        return;
+      }
+      try{
+        let backendId = backendIdForLocal(id);
+        if(backendId){
+          const alarm = getAlarm(product);
+          await API.trackProduct(backendId, alarm == null || alarm === "" ? null : Math.round(Number(alarm)*100));
+        }else{
+          const result = await API.ensureProduct(ensurePayload(product,true));
+          backendId = result.product?.id;
+          if(backendId){
+            state.backend.productIdByLocal.set(id,backendId);
+            state.backend.localIdByBackend.set(backendId,id);
+          }
+        }
+      }catch(error){
+        showToast(`Produkt konnte nicht gespeichert werden: ${error.message}`);
+        return;
+      }
+    }
     state.trackedIds.push(id);
     saveTracked();
+    await syncBackend(false);
     rebuildFilter();
     renderAll();
     showToast("Produkt wird jetzt beobachtet.");
   }
 
-  function removeTracked(id){
+  async function removeTracked(id){
     if(!isTracked(id)) return;
+    if(state.backend.connected){
+      if(!API.hasToken()){
+        showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern.");
+        return;
+      }
+      const backendId = backendIdForLocal(id);
+      if(backendId){
+        try{ await API.untrackProduct(backendId); }
+        catch(error){ showToast(`Produkt konnte nicht entfernt werden: ${error.message}`); return; }
+      }
+    }
     state.trackedIds = state.trackedIds.filter(x=>x!==id);
     saveTracked();
+    await syncBackend(false);
     rebuildFilter();
     renderAll();
     showToast("Produkt aus der Beobachtung entfernt.");
@@ -181,7 +451,7 @@
     return `<div class="market-logo brand-${brand}" aria-label="${escapeAttr(market.name)} Logo"><span>${escapeHtml(text)}</span></div>`;
   }
 
-  function futureOffers(product){ return DATA.futureOffers.filter(x=>x.productId===product.id); }
+  function futureOffers(product){ return [...DATA.futureOffers, ...state.backend.futureOffers].filter(x=>x.productId===product.id); }
 
   function filteredProducts(){
     const q = normalize(els.search.value);
@@ -475,12 +745,76 @@
     }).join("")}</div>` : emptyState("Keine Preiswecker-Produkte gefunden.");
   }
 
+  function renderSettings(){
+    if(!els.settingsView) return;
+    const health = state.backend.health;
+    const meta = state.backend.meta;
+    els.settingsView.innerHTML = `
+      <section class="settings-card">
+        <span class="section-kicker">Cloudflare Backend</span>
+        <h3>Preisscan API</h3>
+        <div class="settings-grid">
+          <div class="setting-row"><span>Status</span><strong class="${state.backend.connected ? "setting-ok" : "setting-bad"}">${state.backend.connected ? "Verbunden" : "Nicht erreichbar"}</strong></div>
+          <div class="setting-row"><span>API</span><strong>${escapeHtml(API?.baseUrl || "—")}</strong></div>
+          <div class="setting-row"><span>API-Version</span><strong>${escapeHtml(health?.api_version || "—")}</strong></div>
+          <div class="setting-row"><span>D1-Schema</span><strong>${escapeHtml(health?.schema_version || "—")}</strong></div>
+          <div class="setting-row"><span>D1-Produkte</span><strong>${meta?.counts?.products ?? health?.products ?? "—"}</strong></div>
+          <div class="setting-row"><span>Preisbeobachtungen</span><strong>${meta?.counts?.price_observations ?? "—"}</strong></div>
+        </div>
+        <button id="checkBackendBtn" class="ghost-btn">Backend neu prüfen</button>
+      </section>
+
+      <section class="settings-card">
+        <span class="section-kicker">Schreibzugriff</span>
+        <h3>WRITE_TOKEN lokal speichern</h3>
+        <p class="settings-note">Das Secret wird nur im Browser dieses Geräts gespeichert und ausschließlich bei geschützten Schreibaktionen als Header an deinen Worker gesendet. Es steht nicht im Netlify-/GitHub-Code.</p>
+        <div class="token-row">
+          <input id="writeTokenInput" type="password" autocomplete="off" placeholder="WRITE_TOKEN einfügen" value="">
+          <button id="saveTokenBtn" class="primary-btn">Token speichern</button>
+          <button id="clearTokenBtn" class="ghost-btn">Token löschen</button>
+        </div>
+        <div class="token-state ${API?.hasToken() ? "ready" : "missing"}">${API?.hasToken() ? "WRITE_TOKEN ist auf diesem Gerät gespeichert." : "Noch kein WRITE_TOKEN auf diesem Gerät gespeichert."}</div>
+      </section>
+
+      <section class="settings-card">
+        <span class="section-kicker">Datenmodus v0.4.0</span>
+        <h3>Backend + lokaler Preis-Fallback</h3>
+        <p class="settings-note">Produkte und Beobachtungsstatus kommen bereits aus D1. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die verifizierten Preisstände aus v0.3.1 sichtbar. Sobald D1 Preisbeobachtungen liefert, werden diese für den jeweiligen Händler übernommen.</p>
+      </section>`;
+
+    document.getElementById("checkBackendBtn")?.addEventListener("click",()=>syncBackend(true));
+    document.getElementById("saveTokenBtn")?.addEventListener("click",()=>{
+      const value = document.getElementById("writeTokenInput")?.value || "";
+      if(!value.trim()){ showToast("WRITE_TOKEN fehlt."); return; }
+      API.setToken(value);
+      renderSettings();
+      showToast("WRITE_TOKEN nur auf diesem Gerät gespeichert.");
+    });
+    document.getElementById("clearTokenBtn")?.addEventListener("click",()=>{
+      API.clearToken();
+      renderSettings();
+      showToast("Lokaler WRITE_TOKEN gelöscht.");
+    });
+  }
+
   function bindAlarmInputs(){
-    document.querySelectorAll("[data-alarm]").forEach(input=>input.addEventListener("change",()=>{
+    document.querySelectorAll("[data-alarm]").forEach(input=>input.addEventListener("change",async()=>{
       const raw=input.value.trim();
-      setAlarm(input.dataset.alarm, raw === "" ? null : Number(raw));
+      const value = raw === "" ? null : Number(raw);
+      const id = input.dataset.alarm;
+      setAlarm(id,value);
+      const backendId = backendIdForLocal(id);
+      if(state.backend.connected && backendId){
+        if(!API.hasToken()){
+          renderAll();
+          showToast("Preiswecker lokal gespeichert. Für D1-Sync WRITE_TOKEN unter Einstellungen speichern.");
+          return;
+        }
+        try{ await API.setTarget(backendId, value == null ? null : Math.round(value*100)); }
+        catch(error){ showToast(`Preiswecker nur lokal gespeichert: ${error.message}`); renderAll(); return; }
+      }
       renderAll();
-      showToast("Preiswecker lokal gespeichert.");
+      showToast(state.backend.connected ? "Preiswecker gespeichert und mit D1 synchronisiert." : "Preiswecker lokal gespeichert.");
     }));
   }
 
@@ -514,6 +848,8 @@
     renderAlerts();
     renderStats();
     renderLocation();
+    renderSettings();
+    updateBackendStatus();
   }
 
   function emptyState(text){ return `<div class="empty-state"><strong>Nichts anzuzeigen</strong><span>${escapeHtml(text)}</span></div>`; }
@@ -533,14 +869,14 @@
     document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
     tab.classList.add("active");
     state.currentView=tab.dataset.view;
-    const viewMap={overview:els.overview,comparison:els.comparison,search:els.searchView,alerts:els.alerts};
+    const viewMap={overview:els.overview,comparison:els.comparison,search:els.searchView,alerts:els.alerts,settings:els.settingsView};
     viewMap[state.currentView].classList.add("active");
   }));
 
   els.search.addEventListener("input",renderAll);
   els.filter.addEventListener("change",renderAll);
-  els.refresh.addEventListener("click",()=>{
-    showToast(state.location ? `Live-Preisabfrage noch nicht aktiv. Referenzstandort: ${state.location}.` : "Live-Preisabfrage noch nicht aktiv. Bitte zuerst einen Referenzstandort setzen.");
+  els.refresh.addEventListener("click",async()=>{
+    await syncBackend(true);
   });
 
   let deferredPrompt=null;
@@ -559,6 +895,7 @@
 
   rebuildFilter();
   renderAll();
+  syncBackend(false);
 
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("service-worker.js").catch(()=>{}); }
 })();

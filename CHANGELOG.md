@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.4.0
+- PWA mit `https://preisscan-api.ralf-music.workers.dev` verbunden
+- Backend-Status im Header, Footer und in Einstellungen sichtbar
+- neue Einstellungen-Seite für API-Status und lokalen WRITE_TOKEN
+- WRITE_TOKEN wird nicht im Projektcode gespeichert, sondern nur lokal im Browser
+- D1-Produkte werden beim Start geladen und mit dem lokalen Produktkatalog zusammengeführt
+- Trackingstatus wird mit D1 synchronisiert
+- neue Katalogprodukte können über `/api/products/ensure` automatisch in D1 angelegt und beobachtet werden
+- Produkt entfernen synchronisiert mit der geschützten DELETE-API
+- Preiswecker synchronisieren mit `tracked_products.target_price_cents`
+- GTIN/EAN-Unterstützung aus der API wird in das Produktmodell übernommen
+- D1-Preisbeobachtungen können aktuelle und zukünftige Preise automatisch in die bestehende UI übernehmen
+- bis automatische Händlerpreise in D1 vorhanden sind, bleiben die verifizierten Preisstände aus v0.3.1 als Fallback sichtbar
+- „Preise prüfen“ aktualisiert jetzt Backenddaten statt einer reinen Dummy-Meldung
+- Service Worker auf v0.4.0 angehoben und API-Aufrufe von PWA-Cache ausgeschlossen
+
+
 ## v0.3.1
 - Fehler der v0.2.0 behoben: vollständiges Projektpaket wiederhergestellt
 - bekannte reale Preisstände statt leerer Mock-Daten eingebaut
