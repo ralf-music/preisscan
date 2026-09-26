@@ -2,7 +2,7 @@ window.PREISSCAN_DATA = {
   app: {
     name: "Einkaufshilfe",
     technicalName: "preisscan",
-    version: "0.4.0",
+    version: "0.5.0",
     apiBase: "https://preisscan-api.ralf-music.workers.dev"
   },
 

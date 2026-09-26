@@ -45,6 +45,18 @@
       localIdByBackend:new Map(),
       marketStatesByLocal:new Map(),
       futureOffers:[]
+    },
+    scanner:{
+      running:false,
+      mode:null,
+      stream:null,
+      detector:null,
+      timer:null,
+      html5:null,
+      busy:false,
+      status:"Bereit zum Scannen.",
+      candidate:null,
+      lastCode:null
     }
   };
   saveJSON(TRACKED_KEY, state.trackedIds);
@@ -52,10 +64,12 @@
   const els = {
     overview: document.getElementById("overviewView"),
     comparison: document.getElementById("comparisonView"),
+    scanner: document.getElementById("scannerView"),
     searchView: document.getElementById("searchView"),
     alerts: document.getElementById("alertsView"),
     search: document.getElementById("searchInput"),
     filter: document.getElementById("productFilter"),
+    scan: document.getElementById("scanBtn"),
     refresh: document.getElementById("refreshBtn"),
     install: document.getElementById("installBtn"),
     toast: document.getElementById("toast"),
@@ -121,7 +135,7 @@
       amount,
       unit,
       ean:item.gtin || null,
-      image:null,
+      image:item.image_key && /^https?:\/\//i.test(item.image_key) ? item.image_key : null,
       imageLabel:`${item.name} ${size}`,
       defaultAlarm:item.target_price_cents == null ? null : item.target_price_cents / 100,
       marketStates:{}
@@ -744,6 +758,449 @@
     </section>`).join("");
   }
 
+  function normalizeScannedCode(value){
+    const code = String(value || "").replace(/\D/g, "");
+    return [8,12,13,14].includes(code.length) ? code : null;
+  }
+
+  function quantityFromOpenFoodFacts(product){
+    const rawAmount = Number(product?.product_quantity);
+    const rawUnit = String(product?.product_quantity_unit || "").toLowerCase();
+    if(Number.isFinite(rawAmount) && rawAmount > 0){
+      if(rawUnit === "ml") return {amount:rawAmount / 1000, unit:"l"};
+      if(rawUnit === "cl") return {amount:rawAmount / 100, unit:"l"};
+      if(rawUnit === "l") return {amount:rawAmount, unit:"l"};
+      if(rawUnit === "kg") return {amount:rawAmount * 1000, unit:"g"};
+      if(rawUnit === "g") return {amount:rawAmount, unit:"g"};
+    }
+    return {amount:null,unit:null};
+  }
+
+  function formatScannedAmount(amount,unit,fallback=""){
+    if(amount == null || !unit) return fallback || "Menge nicht erkannt";
+    const value = Number(amount).toLocaleString("de-DE",{maximumFractionDigits:3});
+    return `${value} ${unit}`;
+  }
+
+  function scannerCandidateFromOff(code, product){
+    const qty = quantityFromOpenFoodFacts(product);
+    const name = String(product?.product_name_de || product?.product_name || product?.generic_name_de || "").trim();
+    const brand = String(product?.brands || "").split(",")[0].trim();
+    const quantity = String(product?.quantity || "").trim();
+    return {
+      source:"Open Food Facts",
+      gtin:code,
+      name:name || (brand ? `${brand} Produkt` : "Unbekanntes Produkt"),
+      brand:brand || null,
+      amount:qty.amount,
+      unit:qty.unit,
+      size:quantity || formatScannedAmount(qty.amount,qty.unit),
+      packageType:"",
+      image:product?.image_front_small_url || product?.image_front_url || null,
+      foundExternally:Boolean(name || brand)
+    };
+  }
+
+  function findPotentialBackendMatch(candidate){
+    if(candidate.amount == null || !candidate.unit) return null;
+    const wantedWords = new Set(normalize(`${candidate.brand || ""} ${candidate.name || ""}`).split(/\s+/).filter(word=>word.length >= 3));
+    let best = null;
+    let bestScore = 0;
+    for(const item of state.backend.products){
+      if(item.gtin) continue;
+      const amount = Number(item.amount_value);
+      if(!Number.isFinite(amount) || Math.abs(amount - Number(candidate.amount)) > 0.001) continue;
+      if(normalize(item.amount_unit || "") !== normalize(candidate.unit)) continue;
+      const itemWords = new Set(normalize(`${item.brand || ""} ${item.name || ""}`).split(/\s+/).filter(word=>word.length >= 3));
+      let overlap = 0;
+      wantedWords.forEach(word=>{ if(itemWords.has(word)) overlap += 1; });
+      if(overlap > bestScore){ bestScore = overlap; best = item; }
+    }
+    return bestScore >= 2 ? best : null;
+  }
+
+  function scannerPayload(candidate, manualName=null){
+    const name = String(manualName || candidate?.name || "").trim();
+    return {
+      gtin:candidate.gtin,
+      brand:candidate.brand || null,
+      name,
+      variant:candidate.size && candidate.size !== "Menge nicht erkannt" ? candidate.size : null,
+      amount_value:candidate.amount,
+      amount_unit:candidate.unit,
+      package_type:candidate.packageType || null,
+      image_key:candidate.image || null,
+      track:true,
+      target_price_cents:null
+    };
+  }
+
+  function scannerStatus(text){
+    state.scanner.status = text;
+    const el = document.getElementById("scannerStatus");
+    if(el) el.textContent = text;
+  }
+
+  async function stopBarcodeScanner(){
+    state.scanner.running = false;
+    if(state.scanner.timer){
+      clearTimeout(state.scanner.timer);
+      state.scanner.timer = null;
+    }
+    if(state.scanner.stream){
+      state.scanner.stream.getTracks().forEach(track=>track.stop());
+      state.scanner.stream = null;
+    }
+    if(state.scanner.html5){
+      const scanner = state.scanner.html5;
+      state.scanner.html5 = null;
+      try{ await scanner.stop(); }catch{}
+      try{ scanner.clear(); }catch{}
+    }
+    state.scanner.detector = null;
+    state.scanner.mode = null;
+  }
+
+  async function nativeScanLoop(video){
+    if(!state.scanner.running || state.scanner.mode !== "native" || !state.scanner.detector) return;
+    try{
+      if(video.readyState >= 2){
+        const results = await state.scanner.detector.detect(video);
+        if(results?.length){
+          const hit = results.find(item=>normalizeScannedCode(item.rawValue));
+          if(hit){ await handleScannedCode(hit.rawValue); return; }
+        }
+      }
+    }catch{}
+    if(state.scanner.running && state.scanner.mode === "native"){
+      state.scanner.timer = setTimeout(()=>nativeScanLoop(video),160);
+    }
+  }
+
+  async function startNativeScanner(){
+    if(!("BarcodeDetector" in window) || !navigator.mediaDevices?.getUserMedia) return false;
+    let formats = [];
+    try{ formats = await BarcodeDetector.getSupportedFormats(); }catch{return false;}
+    const wanted = ["ean_13","ean_8","upc_a","upc_e"].filter(format=>formats.includes(format));
+    if(!wanted.length) return false;
+
+    const reader = document.getElementById("barcodeReader");
+    if(!reader) return false;
+    reader.innerHTML = `<div class="native-camera"><video id="barcodeVideo" playsinline muted></video><div class="scan-frame"><span></span></div></div>`;
+    const video = document.getElementById("barcodeVideo");
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio:false,
+        video:{facingMode:{ideal:"environment"},width:{ideal:1280},height:{ideal:720}}
+      });
+      state.scanner.stream = stream;
+      state.scanner.detector = new BarcodeDetector({formats:wanted});
+      state.scanner.mode = "native";
+      state.scanner.running = true;
+      video.srcObject = stream;
+      await video.play();
+      scannerStatus("Kamera aktiv · Barcode quer in den Rahmen halten.");
+      nativeScanLoop(video);
+      return true;
+    }catch(error){
+      if(state.scanner.stream){ state.scanner.stream.getTracks().forEach(track=>track.stop()); state.scanner.stream=null; }
+      reader.innerHTML = "";
+      if(error?.name === "NotAllowedError") throw new Error("Kamerazugriff wurde verweigert. Kamera-Berechtigung für Preisscan erlauben.");
+      return false;
+    }
+  }
+
+  async function loadScannerFallback(){
+    if(typeof window.Html5Qrcode === "function" && window.Html5QrcodeSupportedFormats) return true;
+    const existing = document.querySelector('script[data-preisscan-scanner-fallback]');
+    if(existing){
+      return await new Promise(resolve=>{
+        if(typeof window.Html5Qrcode === "function") return resolve(true);
+        existing.addEventListener("load",()=>resolve(typeof window.Html5Qrcode === "function"),{once:true});
+        existing.addEventListener("error",()=>resolve(false),{once:true});
+      });
+    }
+    return await new Promise(resolve=>{
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js";
+      script.integrity = "sha512-r6rDA7W6ZeQhvl8S7yRVQUKVHdexq+GAlNkNNqVC7YyIV+NwqCTJe2hDWCiffTyRNOeGEzRRJ9ifvRm/HCzGYg==";
+      script.crossOrigin = "anonymous";
+      script.dataset.preisscanScannerFallback = "1";
+      script.onload = ()=>resolve(typeof window.Html5Qrcode === "function");
+      script.onerror = ()=>resolve(false);
+      document.head.appendChild(script);
+    });
+  }
+
+  async function startFallbackScanner(){
+    scannerStatus("Nativer Scanner nicht verfügbar · Fallback wird geladen …");
+    if(!(await loadScannerFallback())) return false;
+    const formats = [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E
+    ];
+    try{
+      const scanner = new Html5Qrcode("barcodeReader",{formatsToSupport:formats,useBarCodeDetectorIfSupported:false},false);
+      state.scanner.html5 = scanner;
+      state.scanner.mode = "fallback";
+      state.scanner.running = true;
+      await scanner.start(
+        {facingMode:"environment"},
+        {fps:12,qrbox:{width:250,height:110},aspectRatio:4/3},
+        decodedText=>handleScannedCode(decodedText),
+        ()=>{}
+      );
+      scannerStatus("Kamera aktiv · Fallback-Scanner läuft.");
+      return true;
+    }catch(error){
+      state.scanner.running = false;
+      state.scanner.mode = null;
+      state.scanner.html5 = null;
+      if(String(error).toLowerCase().includes("permission")) throw new Error("Kamerazugriff wurde verweigert. Kamera-Berechtigung für Preisscan erlauben.");
+      return false;
+    }
+  }
+
+  async function startBarcodeScanner(){
+    if(state.scanner.running || state.scanner.busy) return;
+    state.scanner.candidate = null;
+    renderScanner();
+    scannerStatus("Kamera wird gestartet …");
+    try{
+      if(await startNativeScanner()) return;
+      if(await startFallbackScanner()) return;
+      scannerStatus("Kamera-Scanner auf diesem Gerät nicht verfügbar. EAN unten manuell eingeben.");
+    }catch(error){
+      scannerStatus(error.message || "Kamera konnte nicht gestartet werden.");
+    }
+  }
+
+  async function handleScannedCode(rawCode){
+    if(state.scanner.busy) return;
+    const code = normalizeScannedCode(rawCode);
+    if(!code){ scannerStatus("Kein gültiger EAN-/UPC-Code erkannt."); return; }
+    state.scanner.busy = true;
+    state.scanner.lastCode = code;
+    await stopBarcodeScanner();
+    scannerStatus(`EAN ${code} erkannt · Produkt wird gesucht …`);
+
+    try{
+      if(state.backend.connected){
+        try{
+          const existing = await API.byGtin(code);
+          if(existing?.product){
+            const item = existing.product;
+            const localId = localIdForBackendProduct(item);
+            const pos = state.backend.products.findIndex(x=>x.id===item.id);
+            if(pos >= 0) state.backend.products[pos] = item; else state.backend.products.push(item);
+            state.backend.productIdByLocal.set(localId,item.id);
+            state.backend.localIdByBackend.set(item.id,localId);
+            state.scanner.candidate = {type:"backend",gtin:code,localId,product:item};
+            scannerStatus("Produkt bereits in Preisscan gefunden.");
+            renderScanner();
+            return;
+          }
+        }catch(error){
+          if(error?.status !== 404) throw error;
+        }
+      }
+
+      scannerStatus(`EAN ${code} ist noch nicht in Preisscan · externe Produktdaten werden gesucht …`);
+      try{
+        const off = await API.openFoodFactsProduct(code);
+        if(off?.found){
+          const resolved = scannerCandidateFromOff(code,off.product);
+          const match = findPotentialBackendMatch(resolved);
+          if(match){
+            state.scanner.candidate = {type:"match",gtin:code,product:match,resolved};
+            scannerStatus("Passendes vorhandenes Preisscan-Produkt gefunden. EAN kann zugeordnet werden.");
+          }else{
+            state.scanner.candidate = {type:"external",...resolved};
+            scannerStatus("Produktdaten gefunden. Noch nicht in deiner D1-Datenbank gespeichert.");
+          }
+        }else{
+          state.scanner.candidate = {type:"manual",gtin:code,name:"",brand:null,amount:null,unit:null,size:"",image:null};
+          scannerStatus("Barcode erkannt, aber keine Produktdaten gefunden. Produktname kann manuell ergänzt werden.");
+        }
+      }catch(error){
+        state.scanner.candidate = {type:"manual",gtin:code,name:"",brand:null,amount:null,unit:null,size:"",image:null};
+        scannerStatus(`Barcode erkannt. Externe Produktdaten derzeit nicht erreichbar: ${error.message}`);
+      }
+      renderScanner();
+    }catch(error){
+      state.scanner.candidate = {type:"error",gtin:code,message:error.message};
+      scannerStatus(`Produktsuche fehlgeschlagen: ${error.message}`);
+      renderScanner();
+    }finally{
+      state.scanner.busy = false;
+    }
+  }
+
+  async function linkScannedMatch(){
+    const candidate = state.scanner.candidate;
+    if(!candidate || candidate.type !== "match") return;
+    if(!state.backend.connected){ showToast("Backend ist nicht verbunden."); return; }
+    if(!API.hasToken()){ showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern."); return; }
+    try{
+      scannerStatus("EAN wird dem vorhandenen Produkt zugeordnet …");
+      await API.setGtin(candidate.product.id,candidate.gtin);
+      await API.trackProduct(candidate.product.id,candidate.product.target_price_cents ?? null);
+      await syncBackend(false);
+      const updated = state.backend.products.find(item=>item.id===candidate.product.id) || {...candidate.product,gtin:candidate.gtin,tracked:1};
+      const localId = localIdForBackendProduct(updated);
+      if(!state.trackedIds.includes(localId)) state.trackedIds.push(localId);
+      saveTracked();
+      state.scanner.candidate = {type:"backend",gtin:candidate.gtin,localId,product:updated};
+      rebuildFilter();
+      renderAll();
+      scannerStatus("EAN zugeordnet. Produkt wird beobachtet.");
+      renderScanner();
+      showToast("EAN zugeordnet und Produkt wird beobachtet.");
+    }catch(error){
+      scannerStatus(`Zuordnung fehlgeschlagen: ${error.message}`);
+      showToast(`EAN konnte nicht zugeordnet werden: ${error.message}`);
+    }
+  }
+
+  async function saveScannedCandidate(){
+    const candidate = state.scanner.candidate;
+    if(!candidate || !["external","manual"].includes(candidate.type)) return;
+    if(!state.backend.connected){ showToast("Backend ist nicht verbunden. Produkt kann noch nicht gespeichert werden."); return; }
+    if(!API.hasToken()){ showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern."); return; }
+    const manualName = candidate.type === "manual" ? (document.getElementById("manualScanName")?.value || "").trim() : null;
+    if(candidate.type === "manual" && !manualName){ showToast("Bitte einen Produktnamen eingeben."); return; }
+    try{
+      scannerStatus("Produkt wird in D1 angelegt und beobachtet …");
+      const result = await API.ensureProduct(scannerPayload(candidate,manualName));
+      await syncBackend(false);
+      if(result?.product){
+        const localId = localIdForBackendProduct(result.product);
+        if(!state.trackedIds.includes(localId)) state.trackedIds.push(localId);
+        saveTracked();
+        state.scanner.candidate = {type:"backend",gtin:candidate.gtin,localId,product:result.product};
+      }
+      rebuildFilter();
+      renderAll();
+      scannerStatus("Produkt gespeichert und zur Beobachtung hinzugefügt.");
+      renderScanner();
+      showToast("Produkt gespeichert und wird jetzt beobachtet.");
+    }catch(error){
+      scannerStatus(`Speichern fehlgeschlagen: ${error.message}`);
+      showToast(`Produkt konnte nicht gespeichert werden: ${error.message}`);
+    }
+  }
+
+  function scannerResultHtml(){
+    const candidate = state.scanner.candidate;
+    if(!candidate) return `<div class="scanner-empty">Noch kein Barcode erkannt.</div>`;
+    if(candidate.type === "backend"){
+      const item = candidate.product;
+      const local = productById(candidate.localId) || backendProductToLocal(item);
+      const tracked = isTracked(candidate.localId) || item.tracked === 1;
+      return `<article class="scan-result-card success">
+        ${productImage(local,"scan-product-image")}
+        <div class="scan-result-copy">
+          <span class="section-kicker">In Preisscan gefunden</span>
+          <h3>${escapeHtml(local.name)} ${escapeHtml(local.size || "")}</h3>
+          <p>EAN/GTIN: <strong>${escapeHtml(candidate.gtin)}</strong></p>
+          <span class="state-pill hit">${tracked ? "Wird bereits beobachtet" : "Noch nicht beobachtet"}</span>
+          ${tracked ? `` : `<button class="primary-btn scan-result-action" data-scan-track="${escapeAttr(candidate.localId)}">Produkt beobachten</button>`}
+        </div>
+      </article>`;
+    }
+    if(candidate.type === "match"){
+      const item = candidate.product;
+      const local = backendProductToLocal(item);
+      return `<article class="scan-result-card match">
+        ${productImage(local,"scan-product-image")}
+        <div class="scan-result-copy">
+          <span class="section-kicker">Passendes Produkt vorhanden</span>
+          <h3>${escapeHtml(local.name)} ${escapeHtml(local.size || "")}</h3>
+          <p>Der Barcode <strong>${escapeHtml(candidate.gtin)}</strong> passt sehr wahrscheinlich zu diesem bereits angelegten Produkt.</p>
+          <small>Die Zuordnung wird erst mit deinem Klick in D1 gespeichert.</small>
+          <button class="primary-btn scan-result-action" id="linkScannedProductBtn">EAN zuordnen & beobachten</button>
+        </div>
+      </article>`;
+    }
+    if(candidate.type === "external"){
+      const pic = candidate.image
+        ? `<div class="scan-product-image"><img src="${escapeAttr(candidate.image)}" alt="Produktbild" referrerpolicy="no-referrer"></div>`
+        : `<div class="scan-product-image image-fallback"><span>Produkt</span><small>${escapeHtml(candidate.size || "")}</small></div>`;
+      return `<article class="scan-result-card">
+        ${pic}
+        <div class="scan-result-copy">
+          <span class="section-kicker">Produktdaten gefunden</span>
+          <h3>${escapeHtml(candidate.name)}</h3>
+          <p>${candidate.brand ? `${escapeHtml(candidate.brand)} · ` : ""}${escapeHtml(candidate.size || "Menge nicht erkannt")}</p>
+          <p>EAN/GTIN: <strong>${escapeHtml(candidate.gtin)}</strong></p>
+          <small>Quelle: ${escapeHtml(candidate.source)}</small>
+          <button class="primary-btn scan-result-action" id="saveScannedProductBtn">Produkt beobachten</button>
+        </div>
+      </article>`;
+    }
+    if(candidate.type === "manual"){
+      return `<article class="scan-result-card manual">
+        <div class="scan-result-copy wide">
+          <span class="section-kicker">Barcode erkannt</span>
+          <h3>Produkt noch unbekannt</h3>
+          <p>EAN/GTIN: <strong>${escapeHtml(candidate.gtin)}</strong></p>
+          <label class="scan-manual-label" for="manualScanName">Produktname</label>
+          <input id="manualScanName" class="scan-manual-input" type="text" placeholder="z. B. Coca-Cola Zero 0,5 l">
+          <button class="primary-btn scan-result-action" id="saveScannedProductBtn">Produkt anlegen & beobachten</button>
+        </div>
+      </article>`;
+    }
+    return `<div class="scanner-error">${escapeHtml(candidate.message || "Scan konnte nicht verarbeitet werden.")}</div>`;
+  }
+
+  function bindScannerControls(){
+    document.getElementById("startScannerBtn")?.addEventListener("click",startBarcodeScanner);
+    document.getElementById("stopScannerBtn")?.addEventListener("click",async()=>{ await stopBarcodeScanner(); scannerStatus("Scanner gestoppt."); renderScanner(); });
+    const manual = document.getElementById("manualBarcodeInput");
+    const submit = ()=>handleScannedCode(manual?.value || "");
+    document.getElementById("manualBarcodeBtn")?.addEventListener("click",submit);
+    manual?.addEventListener("keydown",e=>{ if(e.key === "Enter") submit(); });
+    document.getElementById("saveScannedProductBtn")?.addEventListener("click",saveScannedCandidate);
+    document.getElementById("linkScannedProductBtn")?.addEventListener("click",linkScannedMatch);
+    document.querySelectorAll("[data-scan-track]").forEach(btn=>btn.addEventListener("click",async()=>{
+      await addTracked(btn.dataset.scanTrack);
+      const candidate = state.scanner.candidate;
+      if(candidate?.type === "backend") candidate.product.tracked = 1;
+      renderScanner();
+    }));
+  }
+
+  function renderScanner(){
+    if(!els.scanner) return;
+    const running = state.scanner.running;
+    els.scanner.innerHTML = `<section class="scanner-card">
+      <div class="scanner-head">
+        <div>
+          <span class="section-kicker">Kamera-Scanner</span>
+          <h2>Barcode scannen</h2>
+          <p>EAN-8, EAN-13 und UPC direkt mit der Kamera lesen. Bekannte Produkte werden sofort in Preisscan gesucht.</p>
+        </div>
+        <div class="scanner-actions">
+          <button id="startScannerBtn" class="scan-main-btn" ${running ? "disabled" : ""}>Kamera starten</button>
+          <button id="stopScannerBtn" class="ghost-btn" ${running ? "" : "disabled"}>Stoppen</button>
+        </div>
+      </div>
+      <div id="barcodeReader" class="barcode-reader ${running ? "active" : ""}">${running ? "" : `<div class="scanner-placeholder"><div class="barcode-art" aria-hidden="true"></div><strong>Kamera ist aus</strong><span>Zum Starten auf „Kamera starten“ tippen.</span></div>`}</div>
+      <div id="scannerStatus" class="scanner-status">${escapeHtml(state.scanner.status)}</div>
+      <div class="manual-barcode-row">
+        <input id="manualBarcodeInput" inputmode="numeric" autocomplete="off" placeholder="EAN/GTIN alternativ eingeben" value="${escapeAttr(state.scanner.lastCode || "")}">
+        <button id="manualBarcodeBtn" class="ghost-btn">EAN prüfen</button>
+      </div>
+    </section>
+    <section class="scanner-result-wrap">
+      <span class="section-kicker">Scan-Ergebnis</span>
+      ${scannerResultHtml()}
+    </section>`;
+    bindScannerControls();
+  }
+
   function renderAlerts(){
     const products = filteredProducts();
     els.alerts.innerHTML = products.length ? `<div class="alert-list">${products.map(product=>{
@@ -784,7 +1241,7 @@
       </section>
 
       <section class="settings-card">
-        <span class="section-kicker">Datenmodus v0.4.0</span>
+        <span class="section-kicker">Datenmodus v0.5.0</span>
         <h3>Backend + lokaler Preis-Fallback</h3>
         <p class="settings-note">Produkte und Beobachtungsstatus kommen bereits aus D1. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die verifizierten Preisstände aus v0.3.1 sichtbar. Sobald D1 Preisbeobachtungen liefert, werden diese für den jeweiligen Händler übernommen.</p>
       </section>`;
@@ -851,6 +1308,7 @@
   function renderAll(){
     renderOverview();
     renderComparison();
+    if(!state.scanner.running) renderScanner();
     renderSearch();
     renderAlerts();
     renderStats();
@@ -871,17 +1329,24 @@
   function escapeHtml(value){ return String(value ?? "").replace(/[&<>'"]/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch])); }
   function escapeAttr(value){ return escapeHtml(value); }
 
-  document.querySelectorAll(".tab").forEach(tab=>tab.addEventListener("click",()=>{
-    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  async function activateView(name){
+    if(name !== "scanner" && state.scanner.running) await stopBarcodeScanner();
+    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x.dataset.view===name));
     document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
-    tab.classList.add("active");
-    state.currentView=tab.dataset.view;
-    const viewMap={overview:els.overview,comparison:els.comparison,search:els.searchView,alerts:els.alerts,settings:els.settingsView};
-    viewMap[state.currentView].classList.add("active");
-  }));
+    state.currentView=name;
+    const viewMap={overview:els.overview,comparison:els.comparison,scanner:els.scanner,search:els.searchView,alerts:els.alerts,settings:els.settingsView};
+    viewMap[name]?.classList.add("active");
+    if(name === "scanner") renderScanner();
+  }
+
+  document.querySelectorAll(".tab").forEach(tab=>tab.addEventListener("click",()=>activateView(tab.dataset.view)));
 
   els.search.addEventListener("input",renderAll);
   els.filter.addEventListener("change",renderAll);
+  els.scan?.addEventListener("click",async()=>{
+    await activateView("scanner");
+    await startBarcodeScanner();
+  });
   els.refresh.addEventListener("click",async()=>{
     await syncBackend(true);
   });
@@ -899,6 +1364,8 @@
     deferredPrompt=null;
     els.install.hidden=true;
   });
+
+  window.addEventListener("pagehide",()=>{ stopBarcodeScanner(); });
 
   rebuildFilter();
   renderAll();

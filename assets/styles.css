@@ -51,7 +51,7 @@ button:disabled{cursor:default;opacity:.7}
 .hero-stats div{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:18px;padding:14px 10px;text-align:center}
 .hero-stats strong{display:block;font-size:1.45rem}.hero-stats span{color:var(--muted);font-size:.76rem}
 
-.toolbar{display:grid;grid-template-columns:1fr auto auto;gap:10px;margin-bottom:14px}
+.toolbar{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;margin-bottom:14px}
 .toolbar input,.toolbar select,.family-search-row input{
   background:rgba(18,24,32,.94);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:12px 14px;outline:none
 }
@@ -166,3 +166,47 @@ th{color:var(--muted);text-transform:uppercase;letter-spacing:.035em;font-size:.
 .token-row{display:grid;grid-template-columns:1fr auto auto;gap:9px}.token-row input{min-width:0;background:var(--bg-soft);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:11px 12px;outline:none}.token-row input:focus{border-color:rgba(105,200,255,.45);box-shadow:0 0 0 3px rgba(105,200,255,.08)}
 .token-state{margin-top:10px;font-size:.8rem;font-weight:800}.token-state.ready{color:var(--green)}.token-state.missing{color:var(--orange)}
 @media(max-width:780px){.token-row{grid-template-columns:1fr}.backend-badge{font-size:.7rem}}
+
+
+/* v0.5.0 Barcode Scanner */
+.scan-main-btn{
+  border:1px solid rgba(48,210,125,.38);border-radius:16px;padding:12px 15px;font-weight:900;
+  color:#eafff3;background:linear-gradient(135deg,rgba(48,210,125,.22),rgba(105,200,255,.14));
+  box-shadow:0 0 0 1px rgba(48,210,125,.05) inset
+}
+.scan-main-btn:disabled{opacity:.55}
+.scanner-card,.scanner-result-wrap{
+  border:1px solid rgba(255,255,255,.07);background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.018));
+  border-radius:24px;box-shadow:var(--shadow);padding:18px;margin-bottom:16px
+}
+.scanner-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:14px}
+.scanner-head h2{margin:0;font-size:1.5rem}.scanner-head p{margin:7px 0 0;color:var(--muted);max-width:700px}
+.scanner-actions{display:flex;gap:9px;flex-wrap:wrap}
+.barcode-reader{
+  min-height:320px;border-radius:22px;border:1px solid rgba(105,200,255,.18);background:#070a0e;overflow:hidden;
+  display:grid;place-items:center;position:relative
+}
+.barcode-reader.active{display:block}
+.scanner-placeholder{text-align:center;color:var(--muted);padding:35px 18px}.scanner-placeholder strong{display:block;color:var(--text);margin-top:14px}.scanner-placeholder span{display:block;margin-top:5px}
+.barcode-art{width:180px;height:78px;border-radius:9px;background:repeating-linear-gradient(90deg,#edf7ff 0 3px,transparent 3px 7px,#edf7ff 7px 9px,transparent 9px 13px);opacity:.75;margin:auto}
+.native-camera{position:relative;width:100%;min-height:320px;background:#000;overflow:hidden}.native-camera video{display:block;width:100%;height:min(62vh,520px);object-fit:cover}
+.scan-frame{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}.scan-frame:before{content:"";width:min(82%,430px);height:120px;border:2px solid rgba(48,210,125,.92);border-radius:18px;box-shadow:0 0 0 999px rgba(0,0,0,.34),0 0 28px rgba(48,210,125,.22) inset}
+.scan-frame span{position:absolute;width:min(76%,390px);height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);box-shadow:0 0 10px var(--green);animation:scanline 1.8s ease-in-out infinite}
+@keyframes scanline{0%,100%{transform:translateY(-42px)}50%{transform:translateY(42px)}}
+.scanner-status{margin-top:10px;padding:10px 12px;border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);color:#dce8f2}
+.manual-barcode-row{display:grid;grid-template-columns:1fr auto;gap:9px;margin-top:10px}.manual-barcode-row input,.scan-manual-input{background:var(--bg-soft);color:var(--text);border:1px solid var(--line);border-radius:14px;padding:11px 12px;outline:none}
+.manual-barcode-row input:focus,.scan-manual-input:focus{border-color:rgba(105,200,255,.45);box-shadow:0 0 0 3px rgba(105,200,255,.08)}
+.scanner-result-wrap>.section-kicker{display:block;margin-bottom:10px}.scanner-empty,.scanner-error{padding:18px;border-radius:17px;border:1px dashed rgba(255,255,255,.12);color:var(--muted)}.scanner-error{color:#ffb4b4;border-color:rgba(255,109,109,.24);background:var(--red-soft)}
+.scan-result-card{display:grid;grid-template-columns:110px 1fr;gap:16px;align-items:center;padding:15px;border:1px solid rgba(255,255,255,.08);border-radius:20px;background:rgba(255,255,255,.025)}
+.scan-result-card.success{border-color:rgba(48,210,125,.25);background:var(--green-soft)}.scan-result-card.match{border-color:rgba(105,200,255,.26);background:rgba(105,200,255,.07)}.scan-result-card.manual{grid-template-columns:1fr}.scan-product-image{width:110px;height:125px;border-radius:16px;background:#fff;border:1px solid rgba(255,255,255,.08);display:grid;place-items:center;overflow:hidden;padding:8px}.scan-product-image img{width:100%;height:100%;object-fit:contain}.scan-result-copy{min-width:0}.scan-result-copy.wide{max-width:650px}.scan-result-copy h3{margin:2px 0 4px}.scan-result-copy p{margin:4px 0;color:var(--muted)}.scan-result-copy small{display:block;color:var(--muted);margin-top:5px}.scan-result-action{margin-top:12px}.scan-manual-label{display:block;margin-top:12px;margin-bottom:5px;color:var(--muted);font-size:.82rem}.scan-manual-input{width:100%}
+#barcodeReader video{max-width:100%!important}
+#barcodeReader img{max-width:100%!important}
+#barcodeReader button,#barcodeReader select{font:inherit}
+
+@media (max-width:700px){
+  .toolbar{grid-template-columns:1fr 1fr}.toolbar input{grid-column:1/-1}.toolbar select{grid-column:1/-1}.toolbar .scan-main-btn,.toolbar .primary-btn{width:100%}
+  .scanner-head{display:block}.scanner-actions{margin-top:13px}.scanner-actions button{flex:1}
+  .barcode-reader{min-height:260px}.native-camera{min-height:260px}.native-camera video{height:52vh;min-height:280px}
+  .scan-result-card{grid-template-columns:82px 1fr}.scan-product-image{width:82px;height:96px}
+  .manual-barcode-row{grid-template-columns:1fr}.manual-barcode-row button{width:100%}
+}

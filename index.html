@@ -24,7 +24,7 @@
       </div>
       <div class="header-actions">
         <span class="backend-badge pending" id="backendBadge">Backend wird geprüft</span>
-        <span class="version-badge">v0.4.1</span>
+        <span class="version-badge">v0.5.0</span>
         <button id="installBtn" class="ghost-btn" hidden>Installieren</button>
       </div>
     </header>
@@ -49,12 +49,14 @@
       <select id="productFilter" aria-label="Produktfilter">
         <option value="all">Alle beobachteten Produkte</option>
       </select>
+      <button id="scanBtn" class="scan-main-btn">Barcode scannen</button>
       <button id="refreshBtn" class="primary-btn">Preise prüfen</button>
     </div>
 
     <nav class="tabs" aria-label="Navigation">
       <button class="tab active" data-view="overview">Übersicht</button>
       <button class="tab" data-view="comparison">Preisvergleich</button>
+      <button class="tab" data-view="scanner">Scanner</button>
       <button class="tab" data-view="search">Produktsuche</button>
       <button class="tab" data-view="alerts">Preiswecker</button>
       <button class="tab" data-view="settings">Einstellungen</button>
@@ -63,13 +65,14 @@
     <main>
       <section id="overviewView" class="view active"></section>
       <section id="comparisonView" class="view"></section>
+      <section id="scannerView" class="view"></section>
       <section id="searchView" class="view"></section>
       <section id="alertsView" class="view"></section>
       <section id="settingsView" class="view"></section>
     </main>
 
     <footer class="app-footer">
-      <span>preisscan v0.4.1</span>
+      <span>preisscan v0.5.0</span>
       <span id="backendFooter">Backend wird geprüft …</span>
     </footer>
   </div>

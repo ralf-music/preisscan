@@ -51,6 +51,31 @@
     }
   }
 
+  async function openFoodFactsProduct(gtin){
+    const code = String(gtin || "").replace(/\D/g, "");
+    if(![8,12,13,14].includes(code.length)) throw new Error("Ungültige EAN/GTIN.");
+    const fields = [
+      "code","product_name","product_name_de","generic_name_de","brands","quantity",
+      "product_quantity","product_quantity_unit","image_front_small_url","image_front_url"
+    ].join(",");
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), 12000);
+    try{
+      const response = await fetch(
+        `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${encodeURIComponent(fields)}&lc=de`,
+        {headers:{"Accept":"application/json"}, signal:controller.signal, cache:"no-store"}
+      );
+      if(!response.ok) throw new Error(`Produktdatenbank antwortet mit ${response.status}.`);
+      const data = await response.json();
+      return {found:data?.status === 1 && Boolean(data?.product), code, product:data?.product || null};
+    }catch(error){
+      if(error?.name === "AbortError") throw new Error("Produktdatenbank antwortet nicht rechtzeitig.");
+      throw error;
+    }finally{
+      clearTimeout(timeout);
+    }
+  }
+
   window.PREISSCAN_API = {
     baseUrl: BASE_URL,
     getToken, hasToken, setToken, clearToken,
@@ -60,6 +85,7 @@
     products: (q="")=>request(`/api/products${q ? `?q=${encodeURIComponent(q)}` : ""}`),
     product: id=>request(`/api/products/${encodeURIComponent(id)}`),
     byGtin: gtin=>request(`/api/products/by-gtin/${encodeURIComponent(gtin)}`),
+    openFoodFactsProduct,
     ensureProduct: body=>request("/api/products/ensure",{method:"POST",protected:true,body}),
     trackProduct: (id,targetPriceCents)=>request(`/api/tracked/${encodeURIComponent(id)}`,{method:"POST",protected:true,body:{target_price_cents:targetPriceCents}}),
     untrackProduct: id=>request(`/api/tracked/${encodeURIComponent(id)}`,{method:"DELETE",protected:true}),

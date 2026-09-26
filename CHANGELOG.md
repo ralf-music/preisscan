@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.0
+- Barcode-Scanner als Kernfunktion ergänzt
+- großer „Barcode scannen“-Button und eigenes Scanner-Register
+- Kamera-Scan für EAN-8, EAN-13, UPC-A und UPC-E
+- native BarcodeDetector-Erkennung wird bevorzugt, wenn vom Browser unterstützt
+- Fallback über html5-qrcode/ZXing für Browser ohne geeigneten nativen Scanner
+- manuelle EAN-/GTIN-Eingabe als letzter Fallback
+- gescannte EAN wird zuerst gegen die eigene Preisscan-D1-API geprüft
+- vorhandene D1-Produkte ohne EAN werden nach externer Erkennung über Name + Menge abgeglichen, damit die Startprodukte nicht unnötig doppelt angelegt werden
+- unbekannte EAN wird anschließend über Open Food Facts aufgelöst
+- gefundene externe Produktdaten können nach Bestätigung automatisch in D1 angelegt und beobachtet werden
+- bei unbekanntem Barcode kann ein Produktname manuell ergänzt und der Datensatz trotzdem angelegt werden
+- externe Produktbilder können für automatisch erkannte Produkte als image_key/URL übernommen werden
+- Kamera wird beim Verlassen des Scanner-Tabs sauber gestoppt
+- Service-Worker-Cache auf v0.5.0 angehoben
+
+
 ## v0.4.1
 - PWA-Installierbarkeit für Chrome/Edge korrigiert
 - lokale 192×192- und 512×512-App-Icons aus dem finalen Preisscan-Logo ergänzt
