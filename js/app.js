@@ -44,7 +44,8 @@
       productIdByLocal:new Map(),
       localIdByBackend:new Map(),
       marketStatesByLocal:new Map(),
-      futureOffers:[]
+      futureOffers:[],
+      user:null
     },
     scanner:{
       running:false,
@@ -230,6 +231,8 @@
     state.backend.syncing = true;
     updateBackendStatus();
     try{
+      const sessionInfo = await API.ensureSession();
+      state.backend.user = sessionInfo?.user || null;
       const [health,meta,productsResult,retailerResult] = await Promise.all([
         API.health(), API.meta(), API.products(), API.retailers()
       ]);
@@ -343,10 +346,6 @@
     const product = productById(id);
     if(!product) return;
     if(state.backend.connected){
-      if(!API.hasToken()){
-        showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern.");
-        return;
-      }
       try{
         let backendId = backendIdForLocal(id);
         if(backendId){
@@ -376,10 +375,6 @@
   async function removeTracked(id){
     if(!isTracked(id)) return;
     if(state.backend.connected){
-      if(!API.hasToken()){
-        showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern.");
-        return;
-      }
       const backendId = backendIdForLocal(id);
       if(backendId){
         try{ await API.untrackProduct(backendId); }
@@ -1042,7 +1037,6 @@
     const candidate = state.scanner.candidate;
     if(!candidate || candidate.type !== "match") return;
     if(!state.backend.connected){ showToast("Backend ist nicht verbunden."); return; }
-    if(!API.hasToken()){ showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern."); return; }
     try{
       scannerStatus("EAN wird dem vorhandenen Produkt zugeordnet …");
       await API.setGtin(candidate.product.id,candidate.gtin);
@@ -1068,7 +1062,6 @@
     const candidate = state.scanner.candidate;
     if(!candidate || !["external","manual"].includes(candidate.type)) return;
     if(!state.backend.connected){ showToast("Backend ist nicht verbunden. Produkt kann noch nicht gespeichert werden."); return; }
-    if(!API.hasToken()){ showToast("WRITE_TOKEN fehlt. Unter Einstellungen einmal lokal speichern."); return; }
     const manualName = candidate.type === "manual" ? (document.getElementById("manualScanName")?.value || "").trim() : null;
     if(candidate.type === "manual" && !manualName){ showToast("Bitte einen Produktnamen eingeben."); return; }
     try{
@@ -1213,6 +1206,7 @@
     if(!els.settingsView) return;
     const health = state.backend.health;
     const meta = state.backend.meta;
+    const userId = state.backend.user?.id ?? "—";
     els.settingsView.innerHTML = `
       <section class="settings-card">
         <span class="section-kicker">Cloudflare Backend</span>
@@ -1229,36 +1223,24 @@
       </section>
 
       <section class="settings-card">
-        <span class="section-kicker">Schreibzugriff</span>
-        <h3>WRITE_TOKEN lokal speichern</h3>
-        <p class="settings-note">Das Secret wird nur im Browser dieses Geräts gespeichert und ausschließlich bei geschützten Schreibaktionen als Header an deinen Worker gesendet. Es steht nicht im Netlify-/GitHub-Code.</p>
-        <div class="token-row">
-          <input id="writeTokenInput" type="password" autocomplete="off" placeholder="WRITE_TOKEN einfügen" value="">
-          <button id="saveTokenBtn" class="primary-btn">Token speichern</button>
-          <button id="clearTokenBtn" class="ghost-btn">Token löschen</button>
+        <span class="section-kicker">Persönliche Liste</span>
+        <h3>Automatische Nutzerkennung</h3>
+        <p class="settings-note">Preisscan hat für dieses Gerät automatisch eine private Nutzerkennung angelegt. Damit bleiben deine beobachteten Produkte und Preiswecker von anderen Nutzern getrennt. Dafür ist kein Konto, Passwort oder manuell einzutragender Schlüssel nötig.</p>
+        <div class="settings-grid">
+          <div class="setting-row"><span>Nutzerstatus</span><strong class="${API?.hasUserToken() ? "setting-ok" : "setting-bad"}">${API?.hasUserToken() ? "Aktiv" : "Nicht verbunden"}</strong></div>
+          <div class="setting-row"><span>Interne Nutzer-ID</span><strong>${escapeHtml(userId)}</strong></div>
+          <div class="setting-row"><span>Deine beobachteten Produkte</span><strong>${meta?.counts?.current_user_tracked ?? state.trackedIds.length}</strong></div>
         </div>
-        <div class="token-state ${API?.hasToken() ? "ready" : "missing"}">${API?.hasToken() ? "WRITE_TOKEN ist auf diesem Gerät gespeichert." : "Noch kein WRITE_TOKEN auf diesem Gerät gespeichert."}</div>
+        <p class="settings-note">Die Wiederherstellung auf einem zweiten Gerät kommt später über einen separaten Übertragungscode. Die interne Kennung wird hier bewusst nicht als kopierbares Geheimnis angezeigt.</p>
       </section>
 
       <section class="settings-card">
-        <span class="section-kicker">Datenmodus v0.5.0</span>
-        <h3>Backend + lokaler Preis-Fallback</h3>
-        <p class="settings-note">Produkte und Beobachtungsstatus kommen bereits aus D1. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die verifizierten Preisstände aus v0.3.1 sichtbar. Sobald D1 Preisbeobachtungen liefert, werden diese für den jeweiligen Händler übernommen.</p>
+        <span class="section-kicker">Datenmodus v0.6.0</span>
+        <h3>Gemeinsame Preise, persönliche Beobachtung</h3>
+        <p class="settings-note">Produktkatalog und Händlerpreise sind für alle Nutzer gemeinsam. Beobachtete Produkte und Preiswecker werden dagegen pro Nutzer getrennt gespeichert. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die bekannten verifizierten Preisstände als lokaler Fallback sichtbar.</p>
       </section>`;
 
     document.getElementById("checkBackendBtn")?.addEventListener("click",()=>syncBackend(true));
-    document.getElementById("saveTokenBtn")?.addEventListener("click",()=>{
-      const value = document.getElementById("writeTokenInput")?.value || "";
-      if(!value.trim()){ showToast("WRITE_TOKEN fehlt."); return; }
-      API.setToken(value);
-      renderSettings();
-      showToast("WRITE_TOKEN nur auf diesem Gerät gespeichert.");
-    });
-    document.getElementById("clearTokenBtn")?.addEventListener("click",()=>{
-      API.clearToken();
-      renderSettings();
-      showToast("Lokaler WRITE_TOKEN gelöscht.");
-    });
   }
 
   function bindAlarmInputs(){
@@ -1269,11 +1251,6 @@
       setAlarm(id,value);
       const backendId = backendIdForLocal(id);
       if(state.backend.connected && backendId){
-        if(!API.hasToken()){
-          renderAll();
-          showToast("Preiswecker lokal gespeichert. Für D1-Sync WRITE_TOKEN unter Einstellungen speichern.");
-          return;
-        }
         try{ await API.setTarget(backendId, value == null ? null : Math.round(value*100)); }
         catch(error){ showToast(`Preiswecker nur lokal gespeichert: ${error.message}`); renderAll(); return; }
       }

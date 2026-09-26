@@ -168,7 +168,7 @@ th{color:var(--muted);text-transform:uppercase;letter-spacing:.035em;font-size:.
 @media(max-width:780px){.token-row{grid-template-columns:1fr}.backend-badge{font-size:.7rem}}
 
 
-/* v0.5.0 Barcode Scanner */
+/* v0.6.0 Barcode Scanner */
 .scan-main-btn{
   border:1px solid rgba(48,210,125,.38);border-radius:16px;padding:12px 15px;font-weight:900;
   color:#eafff3;background:linear-gradient(135deg,rgba(48,210,125,.22),rgba(105,200,255,.14));

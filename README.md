@@ -2,7 +2,7 @@
 
 Private PWA „Einkaufshilfe“ für Preisvergleich, Produktsuche, Preiswecker und kommende Angebote.
 
-## Stand v0.5.0
+## Stand v0.6.0
 
 Umgesetzt:
 - responsive PWA-Oberfläche
@@ -37,7 +37,7 @@ preisscan
 Einkaufshilfe
 
 
-## Backend v0.5.0
+## Backend v0.6.0
 
 API: `https://preisscan-api.ralf-music.workers.dev`
 
@@ -50,5 +50,9 @@ Solange `price_observations` in D1 noch leer ist, nutzt die Oberfläche für ber
 Die installierbare PWA enthält lokale 192×192-, 512×512-, Maskable-, Apple-Touch- und Favicon-Dateien.
 
 
-## Barcode-Scanner v0.5.0
+## Barcode-Scanner v0.6.0
 Die PWA scannt EAN-8/EAN-13/UPC über die Kamera. Unterstützte Browser verwenden die native BarcodeDetector-API; ansonsten wird html5-qrcode 2.3.8 als Fallback geladen. Bekannte Barcodes werden in der eigenen API gesucht, unbekannte Produkte anschließend über Open Food Facts aufgelöst. Das Speichern in D1 erfolgt erst nach Bestätigung und benötigt den lokal gespeicherten WRITE_TOKEN.
+
+
+## Mehrnutzer-Modus v0.6.0
+Jede Installation erzeugt beim ersten erfolgreichen Backend-Kontakt automatisch eine anonyme, zufällige Nutzerkennung. Produktkatalog und Preise bleiben gemeinsam; Beobachtungsliste und Preiswecker werden pro Nutzer in D1 getrennt gespeichert. Der bisherige WRITE_TOKEN wird in der Nutzeroberfläche nicht mehr benötigt.

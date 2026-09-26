@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.6.0
+- Mehrnutzer-Architektur ergänzt
+- WRITE_TOKEN vollständig aus der normalen PWA entfernt
+- automatische anonyme Nutzerkennung beim ersten Backend-Kontakt
+- persönliche Beobachtungsliste pro Nutzer
+- persönliche Preiswecker pro Nutzer
+- gemeinsamer Produktkatalog und gemeinsame Händlerpreise bleiben erhalten
+- Barcode-Scan kann Produkte ohne manuelle Admin-Freigabe beobachten
+- neue Nutzer starten mit den bisherigen drei Testprodukten, können sie aber unabhängig entfernen
+- Einstellungen zeigen nur noch Backend- und Nutzerstatus statt eines Secret-Eingabefelds
+- Service-Worker-Cache auf v0.6.0 angehoben
+
+
 ## v0.5.0
 - Barcode-Scanner als Kernfunktion ergänzt
 - großer „Barcode scannen“-Button und eigenes Scanner-Register

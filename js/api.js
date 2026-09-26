@@ -1,30 +1,26 @@
 (() => {
   const DATA = window.PREISSCAN_DATA;
-  const TOKEN_KEY = "preisscan.writeToken.v1";
+  const USER_TOKEN_KEY = "preisscan.userToken.v1";
   const BASE_URL = String(DATA?.app?.apiBase || "").replace(/\/+$/, "");
 
-  function getToken(){ return localStorage.getItem(TOKEN_KEY) || ""; }
-  function hasToken(){ return Boolean(getToken()); }
-  function setToken(value){
+  function getUserToken(){ return localStorage.getItem(USER_TOKEN_KEY) || ""; }
+  function hasUserToken(){ return Boolean(getUserToken()); }
+  function setUserToken(value){
     const token = String(value || "").trim();
-    if(token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    if(token) localStorage.setItem(USER_TOKEN_KEY, token);
+    else localStorage.removeItem(USER_TOKEN_KEY);
   }
-  function clearToken(){ localStorage.removeItem(TOKEN_KEY); }
 
   async function request(path, options={}){
     if(!BASE_URL) throw new Error("API-Adresse fehlt.");
     const controller = new AbortController();
     const timeout = setTimeout(()=>controller.abort(), 12000);
     const headers = {"Accept":"application/json", ...(options.headers || {})};
-    if(options.body !== undefined){
-      headers["Content-Type"] = "application/json";
-    }
-    if(options.protected){
-      const token = getToken();
-      if(!token) throw new Error("WRITE_TOKEN fehlt. Bitte zuerst unter Einstellungen speichern.");
-      headers["X-Preisscan-Token"] = token;
-    }
+    if(options.body !== undefined) headers["Content-Type"] = "application/json";
+
+    const token = getUserToken();
+    if(token && options.auth !== false) headers["Authorization"] = `Bearer ${token}`;
+
     try{
       const response = await fetch(`${BASE_URL}${path}`, {
         method: options.method || "GET",
@@ -49,6 +45,28 @@
     }finally{
       clearTimeout(timeout);
     }
+  }
+
+  async function ensureSession(){
+    if(hasUserToken()){
+      try{
+        const session = await request("/api/session");
+        return {token:getUserToken(), user:session.user, created:false};
+      }catch(error){
+        if(error?.status !== 401) throw error;
+        localStorage.removeItem(USER_TOKEN_KEY);
+      }
+    }
+
+    const created = await request("/api/session", {method:"POST", auth:false});
+    if(!created?.token) throw new Error("Backend hat keine Nutzerkennung geliefert.");
+    setUserToken(created.token);
+    return {token:created.token, user:created.user, created:true};
+  }
+
+  async function userRequest(path, options={}){
+    await ensureSession();
+    return request(path, options);
   }
 
   async function openFoodFactsProduct(gtin){
@@ -78,7 +96,9 @@
 
   window.PREISSCAN_API = {
     baseUrl: BASE_URL,
-    getToken, hasToken, setToken, clearToken,
+    getUserToken,
+    hasUserToken,
+    ensureSession,
     health: ()=>request("/api/health"),
     meta: ()=>request("/api/meta"),
     retailers: ()=>request("/api/retailers"),
@@ -86,10 +106,10 @@
     product: id=>request(`/api/products/${encodeURIComponent(id)}`),
     byGtin: gtin=>request(`/api/products/by-gtin/${encodeURIComponent(gtin)}`),
     openFoodFactsProduct,
-    ensureProduct: body=>request("/api/products/ensure",{method:"POST",protected:true,body}),
-    trackProduct: (id,targetPriceCents)=>request(`/api/tracked/${encodeURIComponent(id)}`,{method:"POST",protected:true,body:{target_price_cents:targetPriceCents}}),
-    untrackProduct: id=>request(`/api/tracked/${encodeURIComponent(id)}`,{method:"DELETE",protected:true}),
-    setTarget: (id,targetPriceCents)=>request(`/api/tracked/${encodeURIComponent(id)}/target`,{method:"PUT",protected:true,body:{target_price_cents:targetPriceCents}}),
-    setGtin: (id,gtin)=>request(`/api/products/${encodeURIComponent(id)}/gtin`,{method:"PUT",protected:true,body:{gtin}})
+    ensureProduct: body=>userRequest("/api/products/ensure",{method:"POST",body}),
+    trackProduct: (id,targetPriceCents)=>userRequest(`/api/tracked/${encodeURIComponent(id)}`,{method:"POST",body:{target_price_cents:targetPriceCents}}),
+    untrackProduct: id=>userRequest(`/api/tracked/${encodeURIComponent(id)}`,{method:"DELETE"}),
+    setTarget: (id,targetPriceCents)=>userRequest(`/api/tracked/${encodeURIComponent(id)}/target`,{method:"PUT",body:{target_price_cents:targetPriceCents}}),
+    setGtin: (id,gtin)=>userRequest(`/api/products/${encodeURIComponent(id)}/gtin`,{method:"PUT",body:{gtin}})
   };
 })();
