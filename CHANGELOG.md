@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.1
+- PWA-Installierbarkeit für Chrome/Edge korrigiert
+- lokale 192×192- und 512×512-App-Icons aus dem finalen Preisscan-Logo ergänzt
+- separates 512×512-Maskable-Icon mit Sicherheitsrand ergänzt
+- 32×32-Browser-Favicon und 180×180-Apple-Touch-Icon ergänzt
+- Manifest um vollständige Icon-Sätze und `prefer_related_applications: false` ergänzt
+- Service-Worker-Cache auf v0.4.1 angehoben und neue Icons in die App-Shell aufgenommen
+- kommende Backendpreise bleiben über `valid_from`/`valid_to` strikt von aktuellen Preisen getrennt
+- Datumsanzeige kommender Backendangebote auf deutsches Format vereinheitlicht
+
+
 ## v0.4.0
 - PWA mit `https://preisscan-api.ralf-music.workers.dev` verbunden
 - Backend-Status im Header, Footer und in Einstellungen sichtbar

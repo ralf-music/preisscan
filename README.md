@@ -2,7 +2,7 @@
 
 Private PWA „Einkaufshilfe“ für Preisvergleich, Produktsuche, Preiswecker und kommende Angebote.
 
-## Stand v0.4.0
+## Stand v0.4.1
 
 Umgesetzt:
 - responsive PWA-Oberfläche
@@ -37,10 +37,14 @@ preisscan
 Einkaufshilfe
 
 
-## Backend v0.4.0
+## Backend v0.4.1
 
 API: `https://preisscan-api.ralf-music.workers.dev`
 
 Der öffentliche Frontend-Code enthält keinen WRITE_TOKEN. Der Token wird in der PWA unter **Einstellungen** einmal lokal im Browser gespeichert und nur bei geschützten POST/PUT/DELETE-Anfragen als `X-Preisscan-Token` gesendet.
 
 Solange `price_observations` in D1 noch leer ist, nutzt die Oberfläche für bereits bekannte Preise den verifizierten lokalen Datenstand aus v0.3.1.
+
+
+## PWA-Icons
+Die installierbare PWA enthält lokale 192×192-, 512×512-, Maskable-, Apple-Touch- und Favicon-Dateien.

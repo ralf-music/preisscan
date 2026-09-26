@@ -1,9 +1,14 @@
-const CACHE_NAME = "preisscan-v0.4.0";
+const CACHE_NAME = "preisscan-v0.4.1";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./assets/styles.css",
   "./assets/icons/preisscan-app.png",
+  "./assets/icons/preisscan-192.png",
+  "./assets/icons/preisscan-512.png",
+  "./assets/icons/preisscan-maskable-512.png",
+  "./assets/icons/apple-touch-icon.png",
+  "./assets/icons/favicon-32.png",
   "./js/data.js",
   "./js/api.js",
   "./js/app.js",

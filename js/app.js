@@ -157,6 +157,13 @@
     return DATA.markets.some(m=>m.id===slug) ? slug : null;
   }
 
+  function formatBackendDate(value){
+    if(!value) return "";
+    const date = new Date(`${value}T00:00:00`);
+    if(Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("de-DE").format(date);
+  }
+
   function mergeBackendPrices(localProduct, rows){
     if(!Array.isArray(rows) || !rows.length) return;
     const byMarket = new Map();
@@ -172,8 +179,8 @@
           productId:localProduct.id,
           marketId,
           price:Number(row.price_eur),
-          validFrom:`ab ${new Intl.DateTimeFormat("de-DE").format(from)}`,
-          validUntil:row.valid_to || "",
+          validFrom:`ab ${formatBackendDate(row.valid_from)}`,
+          validUntil:formatBackendDate(row.valid_to),
           type:row.price_type || "offer",
           source:row.source_name || "Preisscan Backend",
           note:row.condition_label || ""
