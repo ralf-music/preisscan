@@ -3,6 +3,7 @@
   const SETTINGS_KEY = "preisscan.settings.v3";
   const TRACKED_KEY = "preisscan.trackedIds.v3";
   const LOCATION_KEY = "preisscan.location.v1";
+  const RETAILER_PREFS_KEY = "preisscan.retailerPrefs.v1";
   const LEGACY_EXTRA_KEY = "preisscan.trackedExtra.v1";
   const API = window.PREISSCAN_API;
 
@@ -31,6 +32,7 @@
     trackedIds: initialTrackedIds(),
     location: localStorage.getItem(LOCATION_KEY) || "",
     locationEditing: !(localStorage.getItem(LOCATION_KEY) || ""),
+    retailerPrefs: loadJSON(RETAILER_PREFS_KEY, {}),
     currentView: "overview",
     familyQuery: "",
     backend: {
@@ -39,6 +41,7 @@
       health:null,
       meta:null,
       retailers:[],
+      retailerPreferences:[],
       products:[],
       details:new Map(),
       productIdByLocal:new Map(),
@@ -172,6 +175,47 @@
     return DATA.markets.some(m=>m.id===slug) ? slug : null;
   }
 
+  function marketRetailerSlug(market){
+    if(!market) return null;
+    if(market.id === "aldi") return "aldi-sued";
+    if(market.id === "scheck-bruehl") return "scheck-in";
+    if(["marktkauf","mk-wohl","mk-neck"].includes(market.id)) return "marktkauf";
+    return market.id;
+  }
+
+  function retailerEnabledBySlug(slug){
+    if(!slug) return true;
+    const pref = state.retailerPrefs?.[slug];
+    return pref?.enabled !== false;
+  }
+
+  function isMarketEnabled(market){
+    return retailerEnabledBySlug(marketRetailerSlug(market));
+  }
+
+  function enabledMarkets(){
+    return DATA.markets.filter(isMarketEnabled);
+  }
+
+  function saveRetailerPrefs(){
+    saveJSON(RETAILER_PREFS_KEY, state.retailerPrefs);
+  }
+
+  function applyRetailerPreferenceRows(rows){
+    if(!Array.isArray(rows)) return;
+    const next = {...state.retailerPrefs};
+    for(const row of rows){
+      next[row.slug] = {
+        id:Number(row.id),
+        name:row.name,
+        enabled:Number(row.enabled) !== 0
+      };
+    }
+    state.retailerPrefs = next;
+    state.backend.retailerPreferences = rows;
+    saveRetailerPrefs();
+  }
+
   function formatBackendDate(value){
     if(!value) return "";
     const date = new Date(`${value}T00:00:00`);
@@ -241,18 +285,21 @@
         meta,
         productsResult,
         retailerResult,
-        trackedResult
+        trackedResult,
+        retailerPreferenceResult
       ] = await Promise.all([
         API.health(),
         API.meta(),
         API.products(),
         API.retailers(),
-        API.tracked()
+        API.tracked(),
+        API.retailerPreferences()
       ]);
 
       state.backend.health = health;
       state.backend.meta = meta;
       state.backend.retailers = retailerResult.retailers || [];
+      applyRetailerPreferenceRows(retailerPreferenceResult.retailers || []);
 
       const trackedRows = trackedResult.products || [];
       const trackedById = new Map(
@@ -499,7 +546,7 @@
   }
 
   function allReportedPrices(product){
-    return DATA.markets.flatMap(market=>{
+    return enabledMarkets().flatMap(market=>{
       const entry = statusFor(product, market.id);
       return priceOptions(entry).map(option=>({market,entry,option}));
     });
@@ -520,7 +567,7 @@
   }
 
   function priceStores(product){
-    return DATA.markets.filter(m=>priceOptions(statusFor(product,m.id)).length>0);
+    return enabledMarkets().filter(m=>priceOptions(statusFor(product,m.id)).length>0);
   }
 
   function eur(value){
@@ -553,7 +600,7 @@
     return `<div class="market-logo brand-${brand}" aria-label="${escapeAttr(market.name)} Logo"><span>${escapeHtml(text)}</span></div>`;
   }
 
-  function futureOffers(product){ return [...DATA.futureOffers, ...state.backend.futureOffers].filter(x=>x.productId===product.id); }
+  function futureOffers(product){ return [...DATA.futureOffers, ...state.backend.futureOffers].filter(x=>x.productId===product.id && isMarketEnabled(marketById(x.marketId))); }
 
   function filteredProducts(){
     const q = normalize(els.search.value);
@@ -561,7 +608,7 @@
     return trackedProducts().filter(p=>{
       if(f !== "all" && p.id !== f) return false;
       if(!q) return true;
-      const marketText = DATA.markets.flatMap(m=>[m.name,m.branch,m.area]).filter(Boolean).join(" ");
+      const marketText = enabledMarkets().flatMap(m=>[m.name,m.branch,m.area]).filter(Boolean).join(" ");
       return normalize(`${p.name} ${p.size} ${p.packageType || ""} ${marketText}`).includes(q);
     });
   }
@@ -580,7 +627,7 @@
   }
 
   function stateCounts(product){
-    const rows = DATA.markets.map(m=>statusFor(product,m.id));
+    const rows = enabledMarkets().map(m=>statusFor(product,m.id));
     return {
       price: rows.filter(e=>priceOptions(e).length>0).length,
       na: rows.filter(e=>e.status==="na").length,
@@ -590,7 +637,7 @@
   }
 
   function latestCheck(product){
-    const checks = DATA.markets
+    const checks = enabledMarkets()
       .map(m=>statusFor(product,m.id).checked)
       .filter(Boolean)
       .map(v=>new Date(v))
@@ -731,7 +778,7 @@
             </div>
             <div class="card-body">
               <div class="metric-grid">
-                <div class="metric"><b>Märkte mit Preis</b><strong>${counts.price} / ${DATA.markets.length}</strong></div>
+                <div class="metric"><b>Märkte mit Preis</b><strong>${counts.price} / ${enabledMarkets().length}</strong></div>
                 <div class="metric"><b>Nicht im Sortiment</b><strong>${counts.na}</strong></div>
                 <div class="metric"><b>Letzte Prüfung</b><strong>${latest ? formatCheck(latest) : "Noch nicht geprüft"}</strong></div>
               </div>
@@ -773,7 +820,7 @@
         <div class="table-wrap">
           <table>
             <thead><tr><th>Händler / Filiale</th><th>Preise</th><th>Status</th><th>${unitPriceLabel(product)}</th><th>Geprüft / Quelle</th><th>Gültigkeit</th><th>Kommend</th></tr></thead>
-            <tbody>${DATA.markets.map(market=>{
+            <tbody>${enabledMarkets().map(market=>{
               const entry = statusFor(product,market.id);
               let statusLabel="Noch nicht geprüft", statusClass="unchecked";
               if(priceOptions(entry).length){ statusLabel = priceOptions(entry).length > 1 ? `${priceOptions(entry).length} Preisarten` : "Preis vorhanden"; statusClass="price"; }
@@ -1322,12 +1369,90 @@
       </section>
 
       <section class="settings-card">
-        <span class="section-kicker">Datenmodus v0.6.1</span>
+        <span class="section-kicker">Persönliche Händlerauswahl</span>
+        <h3>Welche Händler sollen berücksichtigt werden?</h3>
+        <p class="settings-note">Ausgeschaltete Händler werden für deinen günstigsten Preis, Preisvergleich, Preiswecker und kommende Angebote nicht berücksichtigt. Die Auswahl gehört nur zu deinem Nutzerprofil. Neue Händler sind standardmäßig aktiv, bis du sie ausschaltest.</p>
+        <div class="retailer-pref-actions">
+          <button id="enableAllRetailersBtn" class="ghost-btn">Alle aktivieren</button>
+          <button id="disableAllRetailersBtn" class="ghost-btn">Alle deaktivieren</button>
+        </div>
+        <div class="retailer-pref-list">
+          ${(state.backend.retailers || []).map(retailer=>{
+            const pref = state.retailerPrefs?.[retailer.slug];
+            const enabled = pref?.enabled !== false;
+            return `<label class="retailer-pref-row">
+              <div class="retailer-pref-copy">
+                <strong>${escapeHtml(retailer.name)}</strong>
+                <small>${enabled ? "Wird im Preisvergleich berücksichtigt" : "Für dich ausgeblendet"}</small>
+              </div>
+              <input
+                type="checkbox"
+                data-retailer-pref="${retailer.id}"
+                data-retailer-slug="${escapeAttr(retailer.slug)}"
+                ${enabled ? "checked" : ""}
+              >
+              <span class="retailer-switch" aria-hidden="true"></span>
+            </label>`;
+          }).join("") || `<div class="empty-state compact"><strong>Händlerdaten noch nicht geladen</strong><span>Backend neu prüfen.</span></div>`}
+        </div>
+        <p class="settings-note retailer-region-note">Die Standortlogik wird später zusätzlich aus den Filialdaten ableiten, welche Händler in der gewählten Region tatsächlich verfügbar sind. Deine persönliche An-/Abwahl bleibt davon getrennt.</p>
+      </section>
+
+      <section class="settings-card">
+        <span class="section-kicker">Datenmodus v0.7.0</span>
         <h3>Gemeinsame Preise, persönliche Beobachtung</h3>
-        <p class="settings-note">Produktkatalog und Händlerpreise sind für alle Nutzer gemeinsam. Beobachtete Produkte und Preiswecker werden dagegen pro Nutzer getrennt gespeichert. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die bekannten verifizierten Preisstände als lokaler Fallback sichtbar.</p>
+        <p class="settings-note">Produktkatalog und Händlerpreise sind für alle Nutzer gemeinsam. Beobachtete Produkte, Preiswecker und die persönliche Händlerauswahl werden dagegen pro Nutzer getrennt gespeichert. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die bekannten verifizierten Preisstände als lokaler Fallback sichtbar.</p>
       </section>`;
 
     document.getElementById("checkBackendBtn")?.addEventListener("click",()=>syncBackend(true));
+
+    document.querySelectorAll("[data-retailer-pref]").forEach(input=>{
+      input.addEventListener("change", async ()=>{
+        const retailerId = Number(input.dataset.retailerPref);
+        const slug = input.dataset.retailerSlug;
+        const enabled = input.checked;
+
+        state.retailerPrefs[slug] = {
+          ...(state.retailerPrefs[slug] || {}),
+          id:retailerId,
+          enabled
+        };
+        saveRetailerPrefs();
+        renderAll();
+
+        try{
+          await API.setRetailerPreference(retailerId, enabled);
+          showToast(`${enabled ? "Händler aktiviert" : "Händler ausgeblendet"}.`);
+        }catch(error){
+          showToast(`Händlerauswahl nur lokal gespeichert: ${error.message}`);
+        }
+      });
+    });
+
+    document.getElementById("enableAllRetailersBtn")?.addEventListener("click",()=>setAllRetailerPreferences(true));
+    document.getElementById("disableAllRetailersBtn")?.addEventListener("click",()=>setAllRetailerPreferences(false));
+  }
+
+  async function setAllRetailerPreferences(enabled){
+    for(const retailer of state.backend.retailers || []){
+      state.retailerPrefs[retailer.slug] = {
+        ...(state.retailerPrefs[retailer.slug] || {}),
+        id:Number(retailer.id),
+        name:retailer.name,
+        enabled:Boolean(enabled)
+      };
+    }
+    saveRetailerPrefs();
+    renderAll();
+
+    try{
+      const result = await API.setAllRetailers(Boolean(enabled));
+      applyRetailerPreferenceRows(result.retailers || []);
+      renderAll();
+      showToast(enabled ? "Alle Händler aktiviert." : "Alle Händler ausgeblendet.");
+    }catch(error){
+      showToast(`Händlerauswahl nur lokal gespeichert: ${error.message}`);
+    }
   }
 
   function bindAlarmInputs(){
@@ -1353,7 +1478,7 @@
   function renderStats(){
     const products=trackedProducts();
     document.getElementById("productCount").textContent=products.length;
-    document.getElementById("marketCount").textContent=DATA.markets.length;
+    document.getElementById("marketCount").textContent=enabledMarkets().length;
     document.getElementById("knownPriceCount").textContent=products.reduce((sum,p)=>sum+allReportedPrices(p).length,0);
   }
 

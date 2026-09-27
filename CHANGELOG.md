@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.0
+- persönliche Händlerauswahl pro anonymem Nutzerprofil ergänzt
+- Händler lassen sich in Einstellungen einzeln aktivieren/deaktivieren
+- „Alle aktivieren“ und „Alle deaktivieren“ ergänzt
+- ausgeschaltete Händler werden aus günstigstem Preis, Preisvergleich, Preiswecker, kommenden Angeboten und Marktanzahl entfernt
+- mehrere Filialen derselben Kette folgen gemeinsam der Händlerauswahl
+- neue Händler sind standardmäßig aktiv, solange der Nutzer sie nicht ausschaltet
+- Händlerauswahl wird lokal zwischengespeichert und mit D1 synchronisiert
+- vorbereitet für spätere regionale Verfügbarkeit über Filialdaten
+- Backend API v0.4.0 / D1 Schema v3
+
+
 ## v0.6.1
 - kritischen API-Versionsbruch aus v0.6.0 behoben
 - anonyme Nutzeranlage verwendet jetzt korrekt `POST /api/users`

@@ -189,6 +189,15 @@
 
     me: ()=>userRequest("/api/me"),
     tracked: ()=>userRequest("/api/me/tracked"),
+    retailerPreferences: ()=>userRequest("/api/me/retailers"),
+    setRetailerPreference: (id,enabled)=>userRequest(
+      `/api/me/retailers/${encodeURIComponent(id)}`,
+      {method:"PUT", body:{enabled:Boolean(enabled)}}
+    ),
+    setAllRetailers: enabled=>userRequest(
+      "/api/me/retailers",
+      {method:"PUT", body:{enabled:Boolean(enabled)}}
+    ),
 
     openFoodFactsProduct,
 
