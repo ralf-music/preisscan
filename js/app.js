@@ -228,18 +228,49 @@
 
   async function syncBackend(showMessage=false){
     if(!API) return;
+
     state.backend.syncing = true;
     updateBackendStatus();
+
     try{
       const sessionInfo = await API.ensureSession();
       state.backend.user = sessionInfo?.user || null;
-      const [health,meta,productsResult,retailerResult] = await Promise.all([
-        API.health(), API.meta(), API.products(), API.retailers()
+
+      const [
+        health,
+        meta,
+        productsResult,
+        retailerResult,
+        trackedResult
+      ] = await Promise.all([
+        API.health(),
+        API.meta(),
+        API.products(),
+        API.retailers(),
+        API.tracked()
       ]);
+
       state.backend.health = health;
       state.backend.meta = meta;
       state.backend.retailers = retailerResult.retailers || [];
-      state.backend.products = productsResult.products || [];
+
+      const trackedRows = trackedResult.products || [];
+      const trackedById = new Map(
+        trackedRows.map(item=>[
+          Number(item.id),
+          item
+        ])
+      );
+
+      state.backend.products = (productsResult.products || []).map(item=>{
+        const tracked = trackedById.get(Number(item.id));
+        return {
+          ...item,
+          tracked: tracked ? 1 : 0,
+          target_price_cents: tracked?.target_price_cents ?? null
+        };
+      });
+
       state.backend.details = new Map();
       state.backend.productIdByLocal = new Map();
       state.backend.localIdByBackend = new Map();
@@ -250,29 +281,84 @@
         const localId = localIdForBackendProduct(item);
         state.backend.productIdByLocal.set(localId,item.id);
         state.backend.localIdByBackend.set(item.id,localId);
-        if(item.tracked === 1 && !state.trackedIds.includes(localId)) state.trackedIds.push(localId);
-        if((item.tracked === 0 || item.tracked == null) && state.trackedIds.includes(localId) && !String(localId).startsWith("backend-")){
-          // Bekannte Backend-Produkte folgen dem zentralen Trackingstatus.
-          state.trackedIds = state.trackedIds.filter(x=>x!==localId);
-        }
       }
-      saveTracked();
 
-      const trackedBackend = state.backend.products.filter(x=>x.tracked === 1);
-      const details = await Promise.all(trackedBackend.map(x=>API.product(x.id).catch(()=>null)));
-      details.filter(Boolean).forEach(detail=>{
-        const localId = state.backend.localIdByBackend.get(detail.product.id);
-        if(!localId) return;
-        state.backend.details.set(detail.product.id,detail);
-        const product = productById(localId);
-        if(product) mergeBackendPrices(product,detail.prices || []);
+      const trackedLocalIds = trackedRows.map(item=>{
+        const merged = {
+          ...item,
+          tracked:1
+        };
+        return localIdForBackendProduct(merged);
       });
 
-      state.backend.connected = health?.ok === true && health?.database === "connected";
-      if(showMessage) showToast(`Backend verbunden · ${health.products ?? 0} Produkte in D1.`);
+      const backendKnownLocalIds = new Set(
+        state.backend.products.map(item=>localIdForBackendProduct(item))
+      );
+
+      const localOnlyTracked = state.trackedIds.filter(
+        id=>!backendKnownLocalIds.has(id)
+      );
+
+      state.trackedIds = [
+        ...new Set([
+          ...trackedLocalIds,
+          ...localOnlyTracked
+        ])
+      ];
+
+      saveTracked();
+
+      const trackedBackendProducts = trackedRows
+        .map(row=>state.backend.products.find(item=>Number(item.id)===Number(row.id)))
+        .filter(Boolean);
+
+      const details = await Promise.all(
+        trackedBackendProducts.map(
+          item=>API.product(item.id).catch(()=>null)
+        )
+      );
+
+      details.filter(Boolean).forEach(detail=>{
+        const localId =
+          state.backend.localIdByBackend.get(detail.product.id);
+
+        if(!localId) return;
+
+        state.backend.details.set(
+          detail.product.id,
+          detail
+        );
+
+        const product =
+          productById(localId);
+
+        if(product){
+          mergeBackendPrices(
+            product,
+            detail.prices || []
+          );
+        }
+      });
+
+      state.backend.connected =
+        health?.ok === true &&
+        health?.database === "connected";
+
+      if(showMessage){
+        showToast(
+          `Backend verbunden · ${trackedRows.length} beobachtete Produkte.`
+        );
+      }
+
     }catch(error){
       state.backend.connected = false;
-      if(showMessage) showToast(`Backend nicht erreichbar: ${error.message}`);
+
+      if(showMessage){
+        showToast(
+          `Backend nicht erreichbar: ${error.message}`
+        );
+      }
+
     }finally{
       state.backend.syncing = false;
       updateBackendStatus();
@@ -1206,7 +1292,7 @@
     if(!els.settingsView) return;
     const health = state.backend.health;
     const meta = state.backend.meta;
-    const userId = state.backend.user?.id ?? "—";
+    const userCreated = state.backend.user?.created_at || "—";
     els.settingsView.innerHTML = `
       <section class="settings-card">
         <span class="section-kicker">Cloudflare Backend</span>
@@ -1228,14 +1314,15 @@
         <p class="settings-note">Preisscan hat für dieses Gerät automatisch eine private Nutzerkennung angelegt. Damit bleiben deine beobachteten Produkte und Preiswecker von anderen Nutzern getrennt. Dafür ist kein Konto, Passwort oder manuell einzutragender Schlüssel nötig.</p>
         <div class="settings-grid">
           <div class="setting-row"><span>Nutzerstatus</span><strong class="${API?.hasUserToken() ? "setting-ok" : "setting-bad"}">${API?.hasUserToken() ? "Aktiv" : "Nicht verbunden"}</strong></div>
-          <div class="setting-row"><span>Interne Nutzer-ID</span><strong>${escapeHtml(userId)}</strong></div>
-          <div class="setting-row"><span>Deine beobachteten Produkte</span><strong>${meta?.counts?.current_user_tracked ?? state.trackedIds.length}</strong></div>
+          <div class="setting-row"><span>Geräteprofil</span><strong>${API?.hasUserToken() ? "Aktiv" : "—"}</strong></div>
+          <div class="setting-row"><span>Profil angelegt</span><strong>${escapeHtml(userCreated)}</strong></div>
+          <div class="setting-row"><span>Deine beobachteten Produkte</span><strong>${state.trackedIds.length}</strong></div>
         </div>
         <p class="settings-note">Die Wiederherstellung auf einem zweiten Gerät kommt später über einen separaten Übertragungscode. Die interne Kennung wird hier bewusst nicht als kopierbares Geheimnis angezeigt.</p>
       </section>
 
       <section class="settings-card">
-        <span class="section-kicker">Datenmodus v0.6.0</span>
+        <span class="section-kicker">Datenmodus v0.6.1</span>
         <h3>Gemeinsame Preise, persönliche Beobachtung</h3>
         <p class="settings-note">Produktkatalog und Händlerpreise sind für alle Nutzer gemeinsam. Beobachtete Produkte und Preiswecker werden dagegen pro Nutzer getrennt gespeichert. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die bekannten verifizierten Preisstände als lokaler Fallback sichtbar.</p>
       </section>`;
@@ -1348,5 +1435,10 @@
   renderAll();
   syncBackend(false);
 
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("service-worker.js").catch(()=>{}); }
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker
+      .register("service-worker.js")
+      .then(registration=>registration.update().catch(()=>{}))
+      .catch(()=>{});
+  }
 })();

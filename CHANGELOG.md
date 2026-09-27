@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.6.1
+- kritischen API-Versionsbruch aus v0.6.0 behoben
+- anonyme Nutzeranlage verwendet jetzt korrekt `POST /api/users`
+- Nutzerprüfung verwendet jetzt `GET /api/me`
+- Nutzerkennung wird korrekt über `X-Preisscan-User` gesendet
+- persönliche Beobachtungsliste wird über `GET /api/me/tracked` geladen
+- Produkt beobachten/entfernen und Preiswecker verwenden die neuen `/api/me/...`-Endpunkte
+- Barcode-Produkte werden über `/api/me/products/ensure` gespeichert
+- EAN-Zuordnung verwendet `/api/me/products/:id/gtin`
+- gemeinsamer Produktkatalog und persönliche Beobachtungsliste werden beim Sync korrekt zusammengeführt
+- Service-Worker-Cache auf v0.6.1 angehoben
+- App-Code verwendet jetzt Network-first mit Offline-Fallback, damit Deployments nicht an altem PWA-Cache hängen bleiben
+
+
 ## v0.6.0
 - Mehrnutzer-Architektur ergänzt
 - WRITE_TOKEN vollständig aus der normalen PWA entfernt
