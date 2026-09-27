@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.0
+- Startseite konsequent auf Barcode-Scan als Hauptfunktion umgebaut
+- Scan startet nach Produkterkennung automatisch den Preisvergleich
+- neuer Multi-Source-Preisabruf: Open Prices, German Supermarket Prices und direkter GLOBUS-Adapter
+- deutscher Multi-Händler-Datensatz deckt u. a. EDEKA, Kaufland, Lidl, Netto, PENNY und REWE ab, soweit EAN-Daten vorhanden sind
+- alte Preisstände werden ausdrücklich als historisch markiert und nicht als heutiger Bestpreis gewertet
+- PLZ wird ohne GPS an die Preisabfrage übergeben und zur Einordnung von Preisquellen verwendet
+- aktive persönliche Händlerauswahl wird bereits bei der Preisabfrage berücksichtigt
+- gescannte bekannte Produkte speichern ausreichend frische Treffer automatisch als price_observations in D1
+- „Preise prüfen“ führt jetzt eine echte Quellenprüfung für alle beobachteten Produkte mit EAN durch
+- öffentliche Einstellungen zeigen nur noch Serverstatus statt API-URL, Schema- und D1-Details
+- Backend API v0.5.0, D1-Schema bleibt v3
+
+
 ## v0.7.0
 - persönliche Händlerauswahl pro anonymem Nutzerprofil ergänzt
 - Händler lassen sich in Einstellungen einzeln aktivieren/deaktivieren

@@ -60,7 +60,10 @@
       busy:false,
       status:"Bereit zum Scannen.",
       candidate:null,
-      lastCode:null
+      lastCode:null,
+      prices:null,
+      priceLoading:false,
+      priceError:null
     }
   };
   saveJSON(TRACKED_KEY, state.trackedIds);
@@ -152,14 +155,13 @@
 
   function updateBackendStatus(){
     const connected = state.backend.connected;
+    const pending = state.backend.syncing;
     if(els.backendBadge){
-      els.backendBadge.className = `backend-badge ${connected ? "online" : state.backend.syncing ? "pending" : "offline"}`;
-      els.backendBadge.textContent = connected ? "Backend online" : state.backend.syncing ? "Backend wird geprüft" : "Backend offline";
+      els.backendBadge.className = `backend-badge ${connected ? "online" : pending ? "pending" : "offline"}`;
+      els.backendBadge.textContent = connected ? "Server verfügbar" : pending ? "Server wird geprüft" : "Server offline";
     }
     if(els.backendFooter){
-      els.backendFooter.textContent = connected
-        ? `Backend verbunden · API ${state.backend.health?.api_version || ""}`.trim()
-        : "Backend nicht erreichbar · lokale Daten aktiv";
+      els.backendFooter.textContent = connected ? "Serververbindung verfügbar" : pending ? "Serververbindung wird geprüft …" : "Serververbindung gestört";
     }
   }
 
@@ -910,6 +912,41 @@
     return `${value} ${unit}`;
   }
 
+  function postcodeForLookup(){
+    const match = String(state.location || "").match(/\b\d{5}\b/);
+    return match ? match[0] : null;
+  }
+
+  function freshnessText(hit){
+    if(hit?.freshness === "fresh") return "frisch gemeldet";
+    if(hit?.freshness === "recent") return "aktueller Preisstand";
+    if(hit?.freshness === "future") return "kommendes Angebot";
+    if(hit?.freshness === "historical") return "älterer Preisstand";
+    return "Preisstand";
+  }
+
+  function lookupHitMarketName(hit){
+    const market = DATA.markets.find(m=>marketRetailerSlug(m)===hit?.retailer_slug);
+    return market?.name || hit?.retailer_name || hit?.retailer_slug || "Händler";
+  }
+
+  async function lookupScannedPrices(code, productId=null){
+    if(!API || !state.backend.connected) return;
+    state.scanner.priceLoading = true;
+    state.scanner.priceError = null;
+    state.scanner.prices = null;
+    renderScanner();
+    try{
+      state.scanner.prices = await API.lookupPrices(code, postcodeForLookup(), productId);
+      if(productId) await syncBackend(false);
+    }catch(error){
+      state.scanner.priceError = error.message || "Preisabfrage fehlgeschlagen.";
+    }finally{
+      state.scanner.priceLoading = false;
+      renderScanner();
+    }
+  }
+
   function scannerCandidateFromOff(code, product){
     const qty = quantityFromOpenFoodFacts(product);
     const name = String(product?.product_name_de || product?.product_name || product?.generic_name_de || "").trim();
@@ -1094,6 +1131,9 @@
   async function startBarcodeScanner(){
     if(state.scanner.running || state.scanner.busy) return;
     state.scanner.candidate = null;
+    state.scanner.prices = null;
+    state.scanner.priceError = null;
+    state.scanner.priceLoading = false;
     renderScanner();
     scannerStatus("Kamera wird gestartet …");
     try{
@@ -1126,7 +1166,10 @@
             state.backend.productIdByLocal.set(localId,item.id);
             state.backend.localIdByBackend.set(item.id,localId);
             state.scanner.candidate = {type:"backend",gtin:code,localId,product:item};
-            scannerStatus("Produkt bereits in Preisscan gefunden.");
+            scannerStatus("Produkt erkannt · Preise werden verglichen …");
+            renderScanner();
+            await lookupScannedPrices(code,item.id);
+            scannerStatus("Produkt erkannt · Preisvergleich abgeschlossen.");
             renderScanner();
             return;
           }
@@ -1157,6 +1200,10 @@
         scannerStatus(`Barcode erkannt. Externe Produktdaten derzeit nicht erreichbar: ${error.message}`);
       }
       renderScanner();
+      scannerStatus(`EAN ${code} erkannt · Preise werden verglichen …`);
+      await lookupScannedPrices(code,null);
+      scannerStatus("Produkt erkannt · Preisvergleich abgeschlossen.");
+      renderScanner();
     }catch(error){
       state.scanner.candidate = {type:"error",gtin:code,message:error.message};
       scannerStatus(`Produktsuche fehlgeschlagen: ${error.message}`);
@@ -1180,6 +1227,8 @@
       if(!state.trackedIds.includes(localId)) state.trackedIds.push(localId);
       saveTracked();
       state.scanner.candidate = {type:"backend",gtin:candidate.gtin,localId,product:updated};
+      await lookupScannedPrices(candidate.gtin,candidate.product.id);
+      await syncBackend(false);
       rebuildFilter();
       renderAll();
       scannerStatus("EAN zugeordnet. Produkt wird beobachtet.");
@@ -1206,6 +1255,8 @@
         if(!state.trackedIds.includes(localId)) state.trackedIds.push(localId);
         saveTracked();
         state.scanner.candidate = {type:"backend",gtin:candidate.gtin,localId,product:result.product};
+        await lookupScannedPrices(candidate.gtin,result.product.id);
+        await syncBackend(false);
       }
       rebuildFilter();
       renderAll();
@@ -1216,6 +1267,33 @@
       scannerStatus(`Speichern fehlgeschlagen: ${error.message}`);
       showToast(`Produkt konnte nicht gespeichert werden: ${error.message}`);
     }
+  }
+
+  function scannerPriceResultHtml(){
+    if(state.scanner.priceLoading){
+      return `<section class="scan-price-panel loading"><div class="scan-price-spinner"></div><div><strong>Preise werden verglichen …</strong><span>Aktivierte Händler und Preisquellen werden geprüft.</span></div></section>`;
+    }
+    if(state.scanner.priceError){
+      return `<section class="scan-price-panel error"><strong>Preisvergleich derzeit gestört</strong><span>${escapeHtml(state.scanner.priceError)}</span></section>`;
+    }
+    const result = state.scanner.prices;
+    if(!result) return ``;
+
+    const current = Array.isArray(result.current) ? result.current : [];
+    const future = Array.isArray(result.future) ? result.future : [];
+    const historical = Array.isArray(result.historical) ? result.historical : [];
+    const best = result.cheapest_current;
+
+    return `<section class="scan-price-panel">
+      <div class="scan-price-head">
+        <div><span class="section-kicker">Direkter Preisvergleich</span><h3>${best ? `Günstigster aktueller Treffer: ${eur(best.price_cents/100)}` : "Kein belastbarer aktueller Preis gefunden"}</h3></div>
+        ${best ? `<span class="scan-best-retailer">${escapeHtml(lookupHitMarketName(best))}</span>` : ``}
+      </div>
+      ${current.length ? `<div class="scan-price-list">${current.map(hit=>`<div class="scan-price-row bestable"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.location_label || freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")} · ${escapeHtml(hit.observed_date || "Datum unbekannt")}</small>${hit.note ? `<small>${escapeHtml(hit.note)}</small>` : ``}</div><div><strong>${eur(hit.price_cents/100)}</strong><span class="state-pill ${hit.price_type === "offer" ? "future" : "hit"}">${hit.price_type === "offer" ? "Angebot" : "Preis"}</span></div></div>`).join("")}</div>` : `<div class="scan-no-current">Von den momentan angebundenen Quellen liegt kein ausreichend frischer aktueller Preis vor.</div>`}
+      ${future.length ? `<div class="scan-subsection"><strong>Kommende Angebote</strong>${future.map(hit=>`<div class="scan-price-row"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>ab ${escapeHtml(hit.valid_from || hit.observed_date || "")}</small></div><strong>${eur(hit.price_cents/100)}</strong></div>`).join("")}</div>` : ``}
+      ${historical.length ? `<details class="scan-history"><summary>Ältere bekannte Preisstände (${historical.length})</summary>${historical.slice(0,8).map(hit=>`<div class="scan-price-row historical"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.note || freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")}</small></div><strong>${eur(hit.price_cents/100)}</strong></div>`).join("")}</details>` : ``}
+      <div class="scan-source-note">PLZ: ${escapeHtml(result.postcode || postcodeForLookup() || "nicht gesetzt")} · Fehlende Händler bedeuten „keine Daten“, nicht „Produkt dort nicht erhältlich“.</div>
+    </section>`;
   }
 
   function scannerResultHtml(){
@@ -1323,6 +1401,7 @@
     <section class="scanner-result-wrap">
       <span class="section-kicker">Scan-Ergebnis</span>
       ${scannerResultHtml()}
+      ${scannerPriceResultHtml()}
     </section>`;
     bindScannerControls();
   }
@@ -1337,41 +1416,35 @@
 
   function renderSettings(){
     if(!els.settingsView) return;
-    const health = state.backend.health;
-    const meta = state.backend.meta;
     const userCreated = state.backend.user?.created_at || "—";
+    const serverLabel = state.backend.connected ? "Verfügbar" : state.backend.syncing ? "Wird geprüft" : "Gestört / offline";
+    const serverClass = state.backend.connected ? "setting-ok" : "setting-bad";
     els.settingsView.innerHTML = `
       <section class="settings-card">
-        <span class="section-kicker">Cloudflare Backend</span>
-        <h3>Preisscan API</h3>
+        <span class="section-kicker">Serververbindung</span>
+        <h3>Preisscan-Dienst</h3>
         <div class="settings-grid">
-          <div class="setting-row"><span>Status</span><strong class="${state.backend.connected ? "setting-ok" : "setting-bad"}">${state.backend.connected ? "Verbunden" : "Nicht erreichbar"}</strong></div>
-          <div class="setting-row"><span>API</span><strong>${escapeHtml(API?.baseUrl || "—")}</strong></div>
-          <div class="setting-row"><span>API-Version</span><strong>${escapeHtml(health?.api_version || "—")}</strong></div>
-          <div class="setting-row"><span>D1-Schema</span><strong>${escapeHtml(health?.schema_version || "—")}</strong></div>
-          <div class="setting-row"><span>D1-Produkte</span><strong>${meta?.counts?.products ?? health?.products ?? "—"}</strong></div>
-          <div class="setting-row"><span>Preisbeobachtungen</span><strong>${meta?.counts?.price_observations ?? "—"}</strong></div>
+          <div class="setting-row"><span>Status</span><strong class="${serverClass}">${serverLabel}</strong></div>
         </div>
-        <button id="checkBackendBtn" class="ghost-btn">Backend neu prüfen</button>
+        <button id="checkBackendBtn" class="ghost-btn">Verbindung prüfen</button>
+        <p class="settings-note">Technische Server- und Datenbankdetails werden normalen Nutzern nicht angezeigt. Bei einer Störung bleibt hier nur sichtbar, dass die Verbindung nicht verfügbar ist.</p>
       </section>
 
       <section class="settings-card">
         <span class="section-kicker">Persönliche Liste</span>
-        <h3>Automatische Nutzerkennung</h3>
-        <p class="settings-note">Preisscan hat für dieses Gerät automatisch eine private Nutzerkennung angelegt. Damit bleiben deine beobachteten Produkte und Preiswecker von anderen Nutzern getrennt. Dafür ist kein Konto, Passwort oder manuell einzutragender Schlüssel nötig.</p>
+        <h3>Dein Preisscan-Profil</h3>
+        <p class="settings-note">Beobachtete Produkte, Preiswecker und Händlerauswahl bleiben von anderen Nutzern getrennt. Kein Login und kein Passwort nötig.</p>
         <div class="settings-grid">
-          <div class="setting-row"><span>Nutzerstatus</span><strong class="${API?.hasUserToken() ? "setting-ok" : "setting-bad"}">${API?.hasUserToken() ? "Aktiv" : "Nicht verbunden"}</strong></div>
-          <div class="setting-row"><span>Geräteprofil</span><strong>${API?.hasUserToken() ? "Aktiv" : "—"}</strong></div>
+          <div class="setting-row"><span>Profil</span><strong class="${API?.hasUserToken() ? "setting-ok" : "setting-bad"}">${API?.hasUserToken() ? "Aktiv" : "Nicht verbunden"}</strong></div>
           <div class="setting-row"><span>Profil angelegt</span><strong>${escapeHtml(userCreated)}</strong></div>
-          <div class="setting-row"><span>Deine beobachteten Produkte</span><strong>${state.trackedIds.length}</strong></div>
+          <div class="setting-row"><span>Beobachtete Produkte</span><strong>${state.trackedIds.length}</strong></div>
         </div>
-        <p class="settings-note">Die Wiederherstellung auf einem zweiten Gerät kommt später über einen separaten Übertragungscode. Die interne Kennung wird hier bewusst nicht als kopierbares Geheimnis angezeigt.</p>
       </section>
 
       <section class="settings-card">
         <span class="section-kicker">Persönliche Händlerauswahl</span>
         <h3>Welche Händler sollen berücksichtigt werden?</h3>
-        <p class="settings-note">Ausgeschaltete Händler werden für deinen günstigsten Preis, Preisvergleich, Preiswecker und kommende Angebote nicht berücksichtigt. Die Auswahl gehört nur zu deinem Nutzerprofil. Neue Händler sind standardmäßig aktiv, bis du sie ausschaltest.</p>
+        <p class="settings-note">Ausgeschaltete Händler werden beim Scan, Preisvergleich, Preiswecker und bei kommenden Angeboten nicht berücksichtigt.</p>
         <div class="retailer-pref-actions">
           <button id="enableAllRetailersBtn" class="ghost-btn">Alle aktivieren</button>
           <button id="disableAllRetailersBtn" class="ghost-btn">Alle deaktivieren</button>
@@ -1383,25 +1456,13 @@
             return `<label class="retailer-pref-row">
               <div class="retailer-pref-copy">
                 <strong>${escapeHtml(retailer.name)}</strong>
-                <small>${enabled ? "Wird im Preisvergleich berücksichtigt" : "Für dich ausgeblendet"}</small>
+                <small>${enabled ? "Wird beim Preisvergleich berücksichtigt" : "Für dich ausgeblendet"}</small>
               </div>
-              <input
-                type="checkbox"
-                data-retailer-pref="${retailer.id}"
-                data-retailer-slug="${escapeAttr(retailer.slug)}"
-                ${enabled ? "checked" : ""}
-              >
+              <input type="checkbox" data-retailer-pref="${retailer.id}" data-retailer-slug="${escapeAttr(retailer.slug)}" ${enabled ? "checked" : ""}>
               <span class="retailer-switch" aria-hidden="true"></span>
             </label>`;
-          }).join("") || `<div class="empty-state compact"><strong>Händlerdaten noch nicht geladen</strong><span>Backend neu prüfen.</span></div>`}
+          }).join("") || `<div class="empty-state compact"><strong>Händlerdaten noch nicht geladen</strong><span>Serververbindung prüfen.</span></div>`}
         </div>
-        <p class="settings-note retailer-region-note">Die Standortlogik wird später zusätzlich aus den Filialdaten ableiten, welche Händler in der gewählten Region tatsächlich verfügbar sind. Deine persönliche An-/Abwahl bleibt davon getrennt.</p>
-      </section>
-
-      <section class="settings-card">
-        <span class="section-kicker">Datenmodus v0.7.0</span>
-        <h3>Gemeinsame Preise, persönliche Beobachtung</h3>
-        <p class="settings-note">Produktkatalog und Händlerpreise sind für alle Nutzer gemeinsam. Beobachtete Produkte, Preiswecker und die persönliche Händlerauswahl werden dagegen pro Nutzer getrennt gespeichert. Solange D1 noch keine automatischen Händlerpreise enthält, bleiben die bekannten verifizierten Preisstände als lokaler Fallback sichtbar.</p>
       </section>`;
 
     document.getElementById("checkBackendBtn")?.addEventListener("click",()=>syncBackend(true));
@@ -1411,15 +1472,9 @@
         const retailerId = Number(input.dataset.retailerPref);
         const slug = input.dataset.retailerSlug;
         const enabled = input.checked;
-
-        state.retailerPrefs[slug] = {
-          ...(state.retailerPrefs[slug] || {}),
-          id:retailerId,
-          enabled
-        };
+        state.retailerPrefs[slug] = {...(state.retailerPrefs[slug] || {}),id:retailerId,enabled};
         saveRetailerPrefs();
         renderAll();
-
         try{
           await API.setRetailerPreference(retailerId, enabled);
           showToast(`${enabled ? "Händler aktiviert" : "Händler ausgeblendet"}.`);
@@ -1536,8 +1591,25 @@
     await activateView("scanner");
     await startBarcodeScanner();
   });
+  document.getElementById("heroScanBtn")?.addEventListener("click",async()=>{
+    await activateView("scanner");
+    await startBarcodeScanner();
+  });
   els.refresh.addEventListener("click",async()=>{
-    await syncBackend(true);
+    if(!state.backend.connected){ await syncBackend(true); return; }
+    els.refresh.disabled = true;
+    const original = els.refresh.textContent;
+    els.refresh.textContent = "Preise werden geprüft …";
+    try{
+      const result = await API.scanTrackedPrices(postcodeForLookup());
+      await syncBackend(false);
+      showToast(`${result.scanned_products || 0} Produkte geprüft.`);
+    }catch(error){
+      showToast(`Preisprüfung fehlgeschlagen: ${error.message}`);
+    }finally{
+      els.refresh.disabled = false;
+      els.refresh.textContent = original;
+    }
   });
 
   let deferredPrompt=null;

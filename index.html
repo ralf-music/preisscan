@@ -24,20 +24,21 @@
       </div>
       <div class="header-actions">
         <span class="backend-badge pending" id="backendBadge">Backend wird geprüft</span>
-        <span class="version-badge">v0.7.0</span>
+        <span class="version-badge">v0.8.0</span>
         <button id="installBtn" class="ghost-btn" hidden>Installieren</button>
       </div>
     </header>
 
-    <section class="hero-panel">
-      <div>
-        <span class="hero-kicker">Gemeinsame Preisübersicht</span>
-        <h2>Preise vergleichen, Produktvarianten finden und Preisziele beobachten.</h2>
-        <p>Produktdaten und Händlerpreise sind gemeinsam. Deine beobachteten Produkte und Preiswecker bleiben über eine automatisch erzeugte persönliche Nutzerkennung getrennt; ohne Login oder manuell einzutragenden Schlüssel.</p>
+    <section class="hero-panel scanner-first-hero">
+      <div class="hero-scan-copy">
+        <span class="hero-kicker">Hauptfunktion</span>
+        <h2>Barcode scannen. Preise vergleichen. Günstiger einkaufen.</h2>
+        <p>Produkt im Laden scannen und direkt prüfen, welche angebundenen Händler und Preisquellen einen aktuellen oder bekannten Preis melden. Danach kannst du das Produkt dauerhaft beobachten.</p>
+        <button id="heroScanBtn" class="hero-scan-btn"><span class="hero-scan-icon" aria-hidden="true">▥</span><span><strong>Produkt jetzt scannen</strong><small>Kamera öffnen und EAN erfassen</small></span></button>
       </div>
       <div class="hero-stats">
         <div><strong id="productCount">0</strong><span>beobachtet</span></div>
-        <div><strong id="marketCount">0</strong><span>Märkte</span></div>
+        <div><strong id="marketCount">0</strong><span>Händler aktiv</span></div>
         <div><strong id="knownPriceCount">0</strong><span>Preisstände</span></div>
       </div>
     </section>
@@ -72,7 +73,7 @@
     </main>
 
     <footer class="app-footer">
-      <span>preisscan v0.7.0</span>
+      <span>preisscan v0.8.0</span>
       <span id="backendFooter">Backend wird geprüft …</span>
     </footer>
   </div>

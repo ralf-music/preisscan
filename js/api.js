@@ -199,6 +199,16 @@
       {method:"PUT", body:{enabled:Boolean(enabled)}}
     ),
 
+    lookupPrices: (gtin,postcode=null,productId=null)=>userRequest(
+      "/api/me/prices/lookup",
+      {method:"POST", body:{gtin,postcode,product_id:productId}}
+    ),
+
+    scanTrackedPrices: postcode=>userRequest(
+      "/api/me/prices/scan",
+      {method:"POST", body:{postcode}}
+    ),
+
     openFoodFactsProduct,
 
     ensureProduct: body=>userRequest(
