@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.8.1
+- Hauptbutton „Produkt jetzt scannen“ öffnet den Scanner jetzt sichtbar und scrollt direkt zur Kamera
+- oberer und bisheriger Barcode-Button verwenden exakt denselben Scanner-Ablauf
+- nach erfolgreichem Scan wird automatisch zum Scan-/Preisergebnis gescrollt
+- Preisvergleich startet weiterhin automatisch nach jeder erkannten EAN/GTIN
+- wenn kein frischer aktueller Preis vorliegt, wird der letzte bekannte Preis prominent angezeigt
+- ältere Preisstände sind nicht mehr standardmäßig versteckt, sondern aufgeklappt
+- reine „keine Daten“-Fälle werden klar von vorhandenen älteren Preisständen getrennt
+
+
 ## v0.8.0
 - Startseite konsequent auf Barcode-Scan als Hauptfunktion umgebaut
 - Scan startet nach Produkterkennung automatisch den Preisvergleich

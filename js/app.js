@@ -1171,6 +1171,12 @@
             await lookupScannedPrices(code,item.id);
             scannerStatus("Produkt erkannt · Preisvergleich abgeschlossen.");
             renderScanner();
+            requestAnimationFrame(()=>{
+              document.querySelector(".scanner-result-wrap")?.scrollIntoView({
+                behavior:"smooth",
+                block:"start"
+              });
+            });
             return;
           }
         }catch(error){
@@ -1204,6 +1210,12 @@
       await lookupScannedPrices(code,null);
       scannerStatus("Produkt erkannt · Preisvergleich abgeschlossen.");
       renderScanner();
+      requestAnimationFrame(()=>{
+        document.querySelector(".scanner-result-wrap")?.scrollIntoView({
+          behavior:"smooth",
+          block:"start"
+        });
+      });
     }catch(error){
       state.scanner.candidate = {type:"error",gtin:code,message:error.message};
       scannerStatus(`Produktsuche fehlgeschlagen: ${error.message}`);
@@ -1283,15 +1295,43 @@
     const future = Array.isArray(result.future) ? result.future : [];
     const historical = Array.isArray(result.historical) ? result.historical : [];
     const best = result.cheapest_current;
+    const latestKnown = historical.length
+      ? [...historical].sort((a,b)=>String(b.observed_date || "").localeCompare(String(a.observed_date || "")))[0]
+      : null;
 
-    return `<section class="scan-price-panel">
+    return `<section class="scan-price-panel" id="directPriceResult">
       <div class="scan-price-head">
-        <div><span class="section-kicker">Direkter Preisvergleich</span><h3>${best ? `Günstigster aktueller Treffer: ${eur(best.price_cents/100)}` : "Kein belastbarer aktueller Preis gefunden"}</h3></div>
-        ${best ? `<span class="scan-best-retailer">${escapeHtml(lookupHitMarketName(best))}</span>` : ``}
+        <div>
+          <span class="section-kicker">Direkter Preisvergleich</span>
+          <h3>${best
+            ? `Günstigster aktueller Treffer: ${eur(best.price_cents/100)}`
+            : latestKnown
+              ? `Letzter bekannter Preis: ${eur(latestKnown.price_cents/100)}`
+              : "Kein Preis gefunden"
+          }</h3>
+          ${!best && latestKnown
+            ? `<small class="scan-last-known">${escapeHtml(lookupHitMarketName(latestKnown))} · Stand ${escapeHtml(latestKnown.observed_date || "Datum unbekannt")} · nicht als heutiger Preis gewertet</small>`
+            : ``}
+        </div>
+        ${best
+          ? `<span class="scan-best-retailer">${escapeHtml(lookupHitMarketName(best))}</span>`
+          : latestKnown
+            ? `<span class="scan-best-retailer historical-badge">${escapeHtml(lookupHitMarketName(latestKnown))}</span>`
+            : ``
+        }
       </div>
-      ${current.length ? `<div class="scan-price-list">${current.map(hit=>`<div class="scan-price-row bestable"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.location_label || freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")} · ${escapeHtml(hit.observed_date || "Datum unbekannt")}</small>${hit.note ? `<small>${escapeHtml(hit.note)}</small>` : ``}</div><div><strong>${eur(hit.price_cents/100)}</strong><span class="state-pill ${hit.price_type === "offer" ? "future" : "hit"}">${hit.price_type === "offer" ? "Angebot" : "Preis"}</span></div></div>`).join("")}</div>` : `<div class="scan-no-current">Von den momentan angebundenen Quellen liegt kein ausreichend frischer aktueller Preis vor.</div>`}
+
+      ${current.length
+        ? `<div class="scan-price-list">${current.map(hit=>`<div class="scan-price-row bestable"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.location_label || freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")} · ${escapeHtml(hit.observed_date || "Datum unbekannt")}</small>${hit.note ? `<small>${escapeHtml(hit.note)}</small>` : ``}</div><div><strong>${eur(hit.price_cents/100)}</strong><span class="state-pill ${hit.price_type === "offer" ? "future" : "hit"}">${hit.price_type === "offer" ? "Angebot" : "Preis"}</span></div></div>`).join("")}</div>`
+        : latestKnown
+          ? `<div class="scan-no-current"><strong>Kein ausreichend frischer heutiger Preis.</strong><span>Der letzte bekannte Preis wird unten trotzdem direkt angezeigt.</span></div>`
+          : `<div class="scan-no-current">Von den momentan angebundenen Quellen wurde für diesen Barcode kein Preis gefunden.</div>`
+      }
+
       ${future.length ? `<div class="scan-subsection"><strong>Kommende Angebote</strong>${future.map(hit=>`<div class="scan-price-row"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>ab ${escapeHtml(hit.valid_from || hit.observed_date || "")}</small></div><strong>${eur(hit.price_cents/100)}</strong></div>`).join("")}</div>` : ``}
-      ${historical.length ? `<details class="scan-history"><summary>Ältere bekannte Preisstände (${historical.length})</summary>${historical.slice(0,8).map(hit=>`<div class="scan-price-row historical"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.note || freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")}</small></div><strong>${eur(hit.price_cents/100)}</strong></div>`).join("")}</details>` : ``}
+
+      ${historical.length ? `<details class="scan-history" open><summary>Bekannte ältere Preisstände (${historical.length})</summary>${historical.slice(0,8).map(hit=>`<div class="scan-price-row historical"><div><strong>${escapeHtml(lookupHitMarketName(hit))}</strong><small>${escapeHtml(hit.observed_date ? `Stand ${hit.observed_date}` : freshnessText(hit))}</small><small>${escapeHtml(hit.source_name || "Preisquelle")}</small>${hit.note ? `<small>${escapeHtml(hit.note)}</small>` : ``}</div><strong>${eur(hit.price_cents/100)}</strong></div>`).join("")}</details>` : ``}
+
       <div class="scan-source-note">PLZ: ${escapeHtml(result.postcode || postcodeForLookup() || "nicht gesetzt")} · Fehlende Händler bedeuten „keine Daten“, nicht „Produkt dort nicht erhältlich“.</div>
     </section>`;
   }
@@ -1587,14 +1627,24 @@
 
   els.search.addEventListener("input",renderAll);
   els.filter.addEventListener("change",renderAll);
-  els.scan?.addEventListener("click",async()=>{
+  async function openScannerAndStart(){
     await activateView("scanner");
+
+    await new Promise(resolve=>{
+      requestAnimationFrame(()=>{
+        els.scanner?.scrollIntoView({
+          behavior:"smooth",
+          block:"start"
+        });
+        setTimeout(resolve,220);
+      });
+    });
+
     await startBarcodeScanner();
-  });
-  document.getElementById("heroScanBtn")?.addEventListener("click",async()=>{
-    await activateView("scanner");
-    await startBarcodeScanner();
-  });
+  }
+
+  els.scan?.addEventListener("click",openScannerAndStart);
+  document.getElementById("heroScanBtn")?.addEventListener("click",openScannerAndStart);
   els.refresh.addEventListener("click",async()=>{
     if(!state.backend.connected){ await syncBackend(true); return; }
     els.refresh.disabled = true;

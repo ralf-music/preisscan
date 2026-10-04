@@ -257,3 +257,8 @@ th{color:var(--muted);text-transform:uppercase;letter-spacing:.035em;font-size:.
 .scan-history summary{cursor:pointer;color:var(--muted);font-weight:700;margin-bottom:8px}
 .scan-source-note{margin-top:13px;color:var(--muted);font-size:.72rem;line-height:1.4}
 @media(max-width:700px){.hero-scan-btn{width:100%}.scan-price-head{display:block}.scan-best-retailer{display:inline-block;margin-top:8px}.scan-price-row{align-items:flex-start}.scanner-first-hero{gap:16px}}
+
+.scan-last-known{display:block;margin-top:7px;color:var(--muted);line-height:1.45}
+.scan-best-retailer.historical-badge{border-color:rgba(255,193,92,.35);background:rgba(255,193,92,.10);color:#ffd68c}
+.scan-no-current strong,.scan-no-current span{display:block}
+.scan-no-current span{margin-top:5px}
