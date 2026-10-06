@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.8.2
+- Preisgültigkeit jetzt strikt datumsgesteuert
+- abgelaufene Angebote werden nie mehr als aktueller günstigster Preis verwendet
+- lokale Aktions-/App-/Couponpreise ohne Enddatum gelten höchstens 7 Tage als aktuell
+- lokale normale Regalpreise ohne Enddatum gelten höchstens 14 Tage als aktuell
+- kommende Angebote werden nur angezeigt, wenn ihr Startdatum tatsächlich in der Zukunft liegt
+- abgelaufene Zukunftsangebote verschwinden automatisch
+- ein geplantes Angebot wird am Startdatum automatisch zum aktuellen Preis und nach dem Enddatum wieder entfernt
+- Netto-Angebot 6 × 1,25 l Coca-Cola für 5,99 € vom 05.10.–10.10.2026 als verifiziertes Sortenangebot ergänzt
+- Netto-Angebot wird für Coca-Cola Zero 1,25 l gemäß bestehender Familienregel übernommen; ca. 1,00 € je Flasche, nur beim Kauf des 6er-Packs
+- Datumsdarstellung für kommende Angebote vereinheitlicht
+
+
 ## v0.8.1
 - Hauptbutton „Produkt jetzt scannen“ öffnet den Scanner jetzt sichtbar und scrollt direkt zur Kamera
 - oberer und bisheriger Barcode-Button verwenden exakt denselben Scanner-Ablauf

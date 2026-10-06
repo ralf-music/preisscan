@@ -536,15 +536,140 @@
 
   function marketById(id){ return DATA.markets.find(m=>m.id===id); }
 
-  function statusFor(product, marketId){
-    return product.marketStates?.[marketId] || {status:"unchecked", checked:null};
+  function parseCalendarDate(value){
+    if(!value) return null;
+    if(value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+    const raw = String(value).trim().replace(/^ab\s+/i,"");
+    let match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(match){
+      const date = new Date(Number(match[1]), Number(match[2])-1, Number(match[3]));
+      date.setHours(0,0,0,0);
+      return date;
+    }
+
+    match = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if(match){
+      const date = new Date(Number(match[3]), Number(match[2])-1, Number(match[1]));
+      date.setHours(0,0,0,0);
+      return date;
+    }
+
+    const date = new Date(raw);
+    if(Number.isNaN(date.getTime())) return null;
+    date.setHours(0,0,0,0);
+    return date;
   }
 
-  function priceOptions(entry){
+  function todayDate(){
+    const date = new Date();
+    date.setHours(0,0,0,0);
+    return date;
+  }
+
+  function checkedAgeDays(entry){
+    if(!entry?.checked) return null;
+    const checked = new Date(entry.checked);
+    if(Number.isNaN(checked.getTime())) return null;
+    return Math.floor((Date.now() - checked.getTime()) / 86400000);
+  }
+
+  function entryDateWindowActive(entry){
+    const today = todayDate();
+    const from = parseCalendarDate(entry?.validFrom);
+    const until = parseCalendarDate(entry?.validUntil);
+    if(from && from.getTime() > today.getTime()) return false;
+    if(until && until.getTime() < today.getTime()) return false;
+    return true;
+  }
+
+  function rawPriceOptions(entry){
     if(!entry || entry.status !== "price") return [];
     if(Array.isArray(entry.prices)) return entry.prices.filter(p=>typeof p.value === "number");
     if(typeof entry.value === "number") return [{type:"regular",value:entry.value,label:"Preis"}];
     return [];
+  }
+
+  function scheduledOffers(product){
+    return [...DATA.futureOffers, ...state.backend.futureOffers]
+      .filter(x=>x.productId===product.id && isMarketEnabled(marketById(x.marketId)));
+  }
+
+  function scheduledOfferPhase(offer){
+    const today = todayDate();
+    const from = parseCalendarDate(offer?.validFrom);
+    const until = parseCalendarDate(offer?.validUntil);
+
+    if(until && until.getTime() < today.getTime()) return "expired";
+    if(from && from.getTime() > today.getTime()) return "future";
+    if((!from || from.getTime() <= today.getTime()) && (!until || until.getTime() >= today.getTime())) return "active";
+    return "expired";
+  }
+
+  function activeScheduledOffers(product, marketId){
+    return scheduledOffers(product)
+      .filter(x=>x.marketId===marketId && scheduledOfferPhase(x)==="active");
+  }
+
+  function statusFor(product, marketId){
+    const base = product.marketStates?.[marketId] || {status:"unchecked", checked:null};
+    const active = activeScheduledOffers(product, marketId);
+
+    if(!active.length) return base;
+
+    const scheduledPrices = active.map(offer=>({
+      type:offer.type || "offer",
+      value:Number(offer.price),
+      label:"Angebot",
+      requirement:offer.requirement || null,
+      scheduled:true
+    })).filter(option=>Number.isFinite(option.value));
+
+    return {
+      ...base,
+      status:"price",
+      checked:base.checked || `${active[0].validFrom}T00:00:00`,
+      source:active[0].source || base.source || "Kommendes Angebot",
+      validFrom:active[0].validFrom || base.validFrom || null,
+      validUntil:active[0].validUntil || base.validUntil || null,
+      note:active[0].note || base.note || "",
+      prices:[
+        ...priceOptions(base),
+        ...scheduledPrices
+      ]
+    };
+  }
+
+  function priceOptions(entry){
+    const options = rawPriceOptions(entry);
+    if(!options.length) return [];
+
+    // Explizite Gültigkeitszeiträume haben Vorrang.
+    if(!entryDateWindowActive(entry)) return [];
+
+    const age = checkedAgeDays(entry);
+
+    return options.filter(option=>{
+      if(option.scheduled) return true;
+
+      // Wenn ein Preis einen expliziten gültigen Zeitraum besitzt,
+      // gilt ausschließlich dieser Zeitraum.
+      if(entry.validFrom || entry.validUntil) return true;
+
+      // Alte lokale Test-/Fallbackpreise dürfen nicht ewig als aktuell gelten.
+      if(age == null) return true;
+
+      const type = String(option.type || "regular").toLowerCase();
+
+      // Aktionen, App- und Couponpreise altern besonders schnell.
+      if(["offer","app","coupon"].includes(type)){
+        return age <= 7;
+      }
+
+      // Ein beobachteter normaler Regalpreis darf etwas länger leben,
+      // wird danach aber ebenfalls nicht mehr als "aktuell" gerechnet.
+      return age <= 14;
+    });
   }
 
   function allReportedPrices(product){
@@ -602,7 +727,15 @@
     return `<div class="market-logo brand-${brand}" aria-label="${escapeAttr(market.name)} Logo"><span>${escapeHtml(text)}</span></div>`;
   }
 
-  function futureOffers(product){ return [...DATA.futureOffers, ...state.backend.futureOffers].filter(x=>x.productId===product.id && isMarketEnabled(marketById(x.marketId))); }
+  function futureOffers(product){
+    return scheduledOffers(product)
+      .filter(offer=>scheduledOfferPhase(offer)==="future")
+      .sort((a,b)=>{
+        const ad = parseCalendarDate(a.validFrom)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const bd = parseCalendarDate(b.validFrom)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return ad - bd || Number(a.price) - Number(b.price);
+      });
+  }
 
   function filteredProducts(){
     const q = normalize(els.search.value);
@@ -795,7 +928,7 @@
               </div>
               <div class="future-box">
                 <h4>Kommende Angebote</h4>
-                ${upcoming.length ? upcoming.map(x=>`<div class="future-offer-row"><div><strong>${escapeHtml(marketById(x.marketId)?.name || x.marketId)}</strong><small>${escapeHtml(x.validFrom)}${x.validUntil ? ` – ${escapeHtml(x.validUntil)}` : ""}${x.matchType === "family" ? " · Sortenangebot" : ""}</small>${x.note ? `<small>${escapeHtml(x.note)}</small>` : ""}</div><strong>${eur(x.price)}</strong></div>`).join("") : `<div class="future-empty">Aktuell kein verifiziertes Zukunftsangebot für diese konkrete Variante.</div>`}
+                ${upcoming.length ? upcoming.map(x=>`<div class="future-offer-row"><div><strong>${escapeHtml(marketById(x.marketId)?.name || x.marketId)}</strong><small>ab ${escapeHtml(formatBackendDate(String(x.validFrom || "").replace(/^ab\s+/i,"")))}${x.validUntil ? ` bis ${escapeHtml(formatBackendDate(x.validUntil))}` : ""}${x.matchType === "family" ? " · Sortenangebot" : ""}${x.requirement ? ` · ${escapeHtml(x.requirement)}` : ""}</small>${x.note ? `<small>${escapeHtml(x.note)}</small>` : ""}</div><strong>${eur(x.price)}</strong></div>`).join("") : `<div class="future-empty">Aktuell kein verifiziertes Zukunftsangebot für diese konkrete Variante.</div>`}
               </div>
             </div>
           </article>`;
@@ -835,7 +968,7 @@
                 <td>${renderUnitStack(product,entry)}</td>
                 <td>${formatCheck(entry.checked)}${entry.source ? `<small class="source-note">${escapeHtml(entry.source)}</small>` : ``}</td>
                 <td>${formatValidity(entry) || "—"}${entry.note ? `<small class="source-note">${escapeHtml(entry.note)}</small>` : ``}</td>
-                <td>${(()=>{ const f=futureOffers(product).find(x=>x.marketId===market.id); return f ? `<strong class="future-price">${eur(f.price)}</strong><small class="source-note">${escapeHtml(f.validFrom)}${f.matchType === "family" ? " · Sortenangebot" : ""}</small>` : "—"; })()}</td>
+                <td>${(()=>{ const f=futureOffers(product).find(x=>x.marketId===market.id); return f ? `<strong class="future-price">${eur(f.price)}</strong><small class="source-note">ab ${escapeHtml(formatBackendDate(String(f.validFrom || "").replace(/^ab\s+/i,"")))}${f.validUntil ? ` bis ${escapeHtml(formatBackendDate(f.validUntil))}` : ""}${f.matchType === "family" ? " · Sortenangebot" : ""}${f.requirement ? ` · ${escapeHtml(f.requirement)}` : ""}</small>` : "—"; })()}</td>
               </tr>`;
             }).join("")}</tbody>
           </table>

@@ -2,7 +2,7 @@ window.PREISSCAN_DATA = {
   app: {
     name: "Einkaufshilfe",
     technicalName: "preisscan",
-    version: "0.8.1",
+    version: "0.8.2",
     apiBase: "https://preisscan-api.ralf-music.workers.dev"
   },
 
@@ -145,11 +145,23 @@ window.PREISSCAN_DATA = {
 
   futureOffers: [
     {
+      productId:"coke125",
+      marketId:"netto",
+      price:5.99 / 6,
+      validFrom:"2026-10-05",
+      validUntil:"2026-10-10",
+      type:"offer",
+      matchType:"family",
+      requirement:"Nur beim Kauf eines 6er-Packs",
+      source:"Netto Wochenangebot 05.10.–10.10.2026",
+      note:"Coca-Cola 6 × 1,25 l für 5,99 €. Umgerechnet ca. 1,00 € je Flasche. Gemäß Projektregel wird ein gemeinsames Coca-Cola-Sortenangebot für Zero derselben Größe übernommen, sofern keine Ausnahme ausgewiesen ist."
+    },
+    {
       productId:"monster-rossi",
       marketId:"norma",
       price:0.88,
-      validFrom:"ab 28.09.2026",
-      validUntil:"03.10.2026",
+      validFrom:"2026-09-28",
+      validUntil:"2026-10-03",
       type:"offer",
       matchType:"family",
       source:"NORMA Wochenangebot ab 28.09.",
