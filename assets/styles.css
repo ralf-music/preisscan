@@ -262,3 +262,14 @@ th{color:var(--muted);text-transform:uppercase;letter-spacing:.035em;font-size:.
 .scan-best-retailer.historical-badge{border-color:rgba(255,193,92,.35);background:rgba(255,193,92,.10);color:#ffd68c}
 .scan-no-current strong,.scan-no-current span{display:block}
 .scan-no-current span{margin-top:5px}
+
+.status-tag.no-data{
+  color:#dbe7f2;
+  background:rgba(115,150,180,.08);
+  border-color:rgba(115,150,180,.22)
+}
+.status-tag.stale{
+  color:#ffe0a6;
+  background:rgba(255,180,84,.08);
+  border-color:rgba(255,180,84,.22)
+}

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.8.3
+- irreführenden Status „Noch nicht geprüft“ nach echten Preisabfragen beseitigt
+- jeder aktivierte Händler erhält nach einer Preisprüfung einen klaren Status
+- „Keine Preisdaten gefunden“ wenn Quellen geprüft wurden, aber kein aktueller Preis vorliegt
+- „Preisstand veraltet“ wenn nur ein alter/abgelaufener Preis bekannt ist
+- „Noch nie geprüft“ nur noch, wenn tatsächlich noch keine Preisabfrage für diesen Händler gelaufen ist
+- Zeitstempel einer echten Preisprüfung wird pro Produkt und Händler lokal gespeichert
+- „Letzte Prüfung“ zeigt jetzt die tatsächliche letzte Preisabfrage statt nur alte Quelldaten
+- Übersichtszähler in „Keine aktuellen Preisdaten“ und „Noch nie geprüft“ aufgeteilt
+- Barcode-Preisabfrage und globaler „Preise prüfen“-Lauf aktualisieren die Händler-Prüfstatus automatisch
+- keine Backend- oder D1-Änderung erforderlich
+
+
 ## v0.8.2
 - Preisgültigkeit jetzt strikt datumsgesteuert
 - abgelaufene Angebote werden nie mehr als aktueller günstigster Preis verwendet

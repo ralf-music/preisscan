@@ -4,6 +4,7 @@
   const TRACKED_KEY = "preisscan.trackedIds.v3";
   const LOCATION_KEY = "preisscan.location.v1";
   const RETAILER_PREFS_KEY = "preisscan.retailerPrefs.v1";
+  const PRICE_CHECKS_KEY = "preisscan.priceChecks.v1";
   const LEGACY_EXTRA_KEY = "preisscan.trackedExtra.v1";
   const API = window.PREISSCAN_API;
 
@@ -33,6 +34,7 @@
     location: localStorage.getItem(LOCATION_KEY) || "",
     locationEditing: !(localStorage.getItem(LOCATION_KEY) || ""),
     retailerPrefs: loadJSON(RETAILER_PREFS_KEY, {}),
+    priceChecks: loadJSON(PRICE_CHECKS_KEY, {}),
     currentView: "overview",
     familyQuery: "",
     backend: {
@@ -201,6 +203,36 @@
 
   function saveRetailerPrefs(){
     saveJSON(RETAILER_PREFS_KEY, state.retailerPrefs);
+  }
+
+  function savePriceChecks(){
+    saveJSON(PRICE_CHECKS_KEY, state.priceChecks);
+  }
+
+  function productMarketCheck(localProductId, marketId){
+    return state.priceChecks?.[localProductId]?.[marketId] || null;
+  }
+
+  function markProductMarketsChecked(localProductId, checkedAt, marketIds=null){
+    if(!localProductId || !checkedAt) return;
+    const ids = Array.isArray(marketIds) && marketIds.length
+      ? marketIds
+      : enabledMarkets().map(market=>market.id);
+
+    const next = {
+      ...(state.priceChecks?.[localProductId] || {})
+    };
+
+    ids.forEach(id=>{
+      next[id] = checkedAt;
+    });
+
+    state.priceChecks = {
+      ...state.priceChecks,
+      [localProductId]: next
+    };
+
+    savePriceChecks();
   }
 
   function applyRetailerPreferenceRows(rows){
@@ -615,28 +647,68 @@
     const base = product.marketStates?.[marketId] || {status:"unchecked", checked:null};
     const active = activeScheduledOffers(product, marketId);
 
-    if(!active.length) return base;
+    if(active.length){
+      const scheduledPrices = active.map(offer=>({
+        type:offer.type || "offer",
+        value:Number(offer.price),
+        label:"Angebot",
+        requirement:offer.requirement || null,
+        scheduled:true
+      })).filter(option=>Number.isFinite(option.value));
 
-    const scheduledPrices = active.map(offer=>({
-      type:offer.type || "offer",
-      value:Number(offer.price),
-      label:"Angebot",
-      requirement:offer.requirement || null,
-      scheduled:true
-    })).filter(option=>Number.isFinite(option.value));
+      return {
+        ...base,
+        status:"price",
+        checked:base.checked || `${active[0].validFrom}T00:00:00`,
+        source:active[0].source || base.source || "Kommendes Angebot",
+        validFrom:active[0].validFrom || base.validFrom || null,
+        validUntil:active[0].validUntil || base.validUntil || null,
+        note:active[0].note || base.note || "",
+        prices:[
+          ...priceOptions(base),
+          ...scheduledPrices
+        ]
+      };
+    }
+
+    // Explizite Aussagen wie "nicht im Sortiment" oder "unklar"
+    // bleiben stärker als ein allgemeiner Scan ohne Treffer.
+    if(base.status === "na" || base.status === "unknown"){
+      return base;
+    }
+
+    const currentPrices = priceOptions(base);
+
+    if(currentPrices.length){
+      return base;
+    }
+
+    const lastRealCheck = productMarketCheck(product.id, marketId);
+
+    // Eine echte Preisprüfung lief, aber es wurde für diesen Händler
+    // kein belastbarer aktueller Preis gefunden.
+    if(lastRealCheck){
+      return {
+        status:"no_data",
+        checked:lastRealCheck,
+        source:"Angebundene Preisquellen geprüft",
+        note:"Kein belastbarer aktueller Preis für diesen Händler gefunden.",
+        prices:[]
+      };
+    }
+
+    // Es gab einmal einen Preis, aber er ist inzwischen abgelaufen/veraltet.
+    if(base.status === "price" && rawPriceOptions(base).length){
+      return {
+        ...base,
+        status:"stale",
+        prices:[]
+      };
+    }
 
     return {
       ...base,
-      status:"price",
-      checked:base.checked || `${active[0].validFrom}T00:00:00`,
-      source:active[0].source || base.source || "Kommendes Angebot",
-      validFrom:active[0].validFrom || base.validFrom || null,
-      validUntil:active[0].validUntil || base.validUntil || null,
-      note:active[0].note || base.note || "",
-      prices:[
-        ...priceOptions(base),
-        ...scheduledPrices
-      ]
+      status:"unchecked"
     };
   }
 
@@ -767,6 +839,8 @@
       price: rows.filter(e=>priceOptions(e).length>0).length,
       na: rows.filter(e=>e.status==="na").length,
       unknown: rows.filter(e=>e.status==="unknown").length,
+      noData: rows.filter(e=>e.status==="no_data").length,
+      stale: rows.filter(e=>e.status==="stale").length,
       unchecked: rows.filter(e=>e.status==="unchecked").length
     };
   }
@@ -782,9 +856,9 @@
   }
 
   function formatCheck(value){
-    if(!value) return "Noch nicht geprüft";
+    if(!value) return "Noch nie geprüft";
     const d = value instanceof Date ? value : new Date(value);
-    if(Number.isNaN(d.getTime())) return "Noch nicht geprüft";
+    if(Number.isNaN(d.getTime())) return "Noch nie geprüft";
     return new Intl.DateTimeFormat("de-DE", {dateStyle:"short",timeStyle:"short"}).format(d);
   }
 
@@ -915,7 +989,7 @@
               <div class="metric-grid">
                 <div class="metric"><b>Märkte mit Preis</b><strong>${counts.price} / ${enabledMarkets().length}</strong></div>
                 <div class="metric"><b>Nicht im Sortiment</b><strong>${counts.na}</strong></div>
-                <div class="metric"><b>Letzte Prüfung</b><strong>${latest ? formatCheck(latest) : "Noch nicht geprüft"}</strong></div>
+                <div class="metric"><b>Letzte Prüfung</b><strong>${latest ? formatCheck(latest) : "Noch nie geprüft"}</strong></div>
               </div>
               <div class="alarm-line">
                 <div class="alarm-controls"><strong>Preiswecker</strong><span>≤</span><input class="price-input" data-alarm="${escapeAttr(product.id)}" type="number" min="0" step="0.01" value="${getAlarm(product) ?? ""}" placeholder="z. B. 1,00"><span>€</span></div>
@@ -923,8 +997,8 @@
               </div>
               <div class="metric-grid spaced">
                 <div class="metric"><b>Höchster gemeldeter Preis</b><strong>${worst ? eur(worst.option.value) : "—"}</strong><small>${worst ? `${escapeHtml(worst.market.name)} · ${escapeHtml(priceTypeText(worst.option))}` : "keine Daten"}</small></div>
-                <div class="metric"><b>Unklar</b><strong>${counts.unknown}</strong><small>Preis nicht ermittelbar</small></div>
-                <div class="metric"><b>Noch offen</b><strong>${counts.unchecked}</strong><small>noch nicht geprüft</small></div>
+                <div class="metric"><b>Keine aktuellen Preisdaten</b><strong>${counts.noData + counts.stale}</strong><small>${counts.stale ? `${counts.stale} veraltete Preisstände` : "bei Prüfung kein Preis gefunden"}</small></div>
+                <div class="metric"><b>Noch nie geprüft</b><strong>${counts.unchecked}</strong><small>noch keine Preisabfrage durchgeführt</small></div>
               </div>
               <div class="future-box">
                 <h4>Kommende Angebote</h4>
@@ -957,10 +1031,27 @@
             <thead><tr><th>Händler / Filiale</th><th>Preise</th><th>Status</th><th>${unitPriceLabel(product)}</th><th>Geprüft / Quelle</th><th>Gültigkeit</th><th>Kommend</th></tr></thead>
             <tbody>${enabledMarkets().map(market=>{
               const entry = statusFor(product,market.id);
-              let statusLabel="Noch nicht geprüft", statusClass="unchecked";
-              if(priceOptions(entry).length){ statusLabel = priceOptions(entry).length > 1 ? `${priceOptions(entry).length} Preisarten` : "Preis vorhanden"; statusClass="price"; }
-              else if(entry.status === "na"){ statusLabel="Nicht im Sortiment"; statusClass="na"; }
-              else if(entry.status === "unknown"){ statusLabel="Preis nicht ermittelbar"; statusClass="unknown"; }
+              let statusLabel="Noch nie geprüft", statusClass="unchecked";
+              if(priceOptions(entry).length){
+                statusLabel = priceOptions(entry).length > 1 ? `${priceOptions(entry).length} Preisarten` : "Preis vorhanden";
+                statusClass="price";
+              }
+              else if(entry.status === "na"){
+                statusLabel="Nicht im Sortiment";
+                statusClass="na";
+              }
+              else if(entry.status === "unknown"){
+                statusLabel="Preis nicht ermittelbar";
+                statusClass="unknown";
+              }
+              else if(entry.status === "no_data"){
+                statusLabel="Keine Preisdaten gefunden";
+                statusClass="no-data";
+              }
+              else if(entry.status === "stale"){
+                statusLabel="Preisstand veraltet";
+                statusClass="stale";
+              }
               return `<tr>
                 <td><div class="market-cell">${marketLogo(market)}<div class="market-copy"><strong>${escapeHtml(market.name)}</strong>${market.branch ? `<small>${escapeHtml(market.branch)}</small>` : `<small>${escapeHtml(market.area)}</small>`}</div></div></td>
                 <td>${renderPriceStack(product,entry,bestValue,worstValue)}</td>
@@ -1071,7 +1162,16 @@
     renderScanner();
     try{
       state.scanner.prices = await API.lookupPrices(code, postcodeForLookup(), productId);
-      if(productId) await syncBackend(false);
+      if(productId){
+        await syncBackend(false);
+        const localId = state.backend.localIdByBackend.get(Number(productId));
+        if(localId){
+          markProductMarketsChecked(
+            localId,
+            state.scanner.prices?.checked_at || new Date().toISOString()
+          );
+        }
+      }
     }catch(error){
       state.scanner.priceError = error.message || "Preisabfrage fehlgeschlagen.";
     }finally{
@@ -1786,6 +1886,17 @@
     try{
       const result = await API.scanTrackedPrices(postcodeForLookup());
       await syncBackend(false);
+
+      const checkedAt = result.checked_at || new Date().toISOString();
+
+      (result.results || []).forEach(row=>{
+        const localId = state.backend.localIdByBackend.get(Number(row.product_id));
+        if(localId){
+          markProductMarketsChecked(localId, checkedAt);
+        }
+      });
+
+      renderAll();
       showToast(`${result.scanned_products || 0} Produkte geprüft.`);
     }catch(error){
       showToast(`Preisprüfung fehlgeschlagen: ${error.message}`);
