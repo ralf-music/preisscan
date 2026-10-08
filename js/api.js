@@ -199,9 +199,9 @@
       {method:"PUT", body:{enabled:Boolean(enabled)}}
     ),
 
-    lookupPrices: (gtin,postcode=null,productId=null)=>userRequest(
+    lookupPrices: (gtin,postcode=null,productId=null,extra={})=>userRequest(
       "/api/me/prices/lookup",
-      {method:"POST", body:{gtin,postcode,product_id:productId}}
+      {method:"POST", body:{gtin,postcode,product_id:productId,...extra}}
     ),
 
     scanTrackedPrices: postcode=>userRequest(

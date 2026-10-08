@@ -1,4 +1,4 @@
-const CACHE_NAME = "preisscan-v0.8.3";
+const CACHE_NAME = "preisscan-v0.9.0";
 
 const APP_SHELL = [
   "./",

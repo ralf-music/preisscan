@@ -2,7 +2,7 @@ window.PREISSCAN_DATA = {
   app: {
     name: "Einkaufshilfe",
     technicalName: "preisscan",
-    version: "0.8.3",
+    version: "0.9.0",
     apiBase: "https://preisscan-api.ralf-music.workers.dev"
   },
 
@@ -37,42 +37,7 @@ window.PREISSCAN_DATA = {
       image:"https://www.dropwinkel.eu/media/cache/gallery_zoom/product/3130/coca-cola-zero-pet-12-x-125-liter.jpg",
       imageLabel:"Coca-Cola Zero 1,25 l",
       defaultAlarm:1.00,
-      marketStates:{
-        lidl:{
-          status:"price",
-          checked:"2026-09-24T11:06:00+02:00",
-          source:"Vor-Ort-Preisschild",
-          prices:[
-            {type:"regular", value:1.19, label:"Regulär"},
-            {type:"app", value:0.99, label:"Lidl Plus", requirement:"Lidl Plus App"}
-          ]
-        },
-        norma:{
-          status:"price",
-          checked:"2026-09-25T22:19:00+02:00",
-          source:"NORMA Wochenangebot",
-          validFrom:"2026-09-21",
-          validUntil:"2026-09-27",
-          prices:[
-            {type:"offer", value:0.99, label:"Angebot"}
-          ],
-          note:"Angebot wird gemäß Projektregel auch für Coca-Cola Zero derselben Größe übernommen."
-        },
-        edeka:{
-          status:"price",
-          checked:"2026-09-25T22:35:00+02:00",
-          source:"kaufDA Mannheim · EDEKA-Angebot",
-          prices:[{type:"offer", value:1.11, label:"Angebot"}],
-          note:"1,25-l-Angebot aus dem regionalen Mannheimer Angebotsvergleich; Filialabweichungen möglich."
-        },
-        netto:{
-          status:"price",
-          checked:"2026-09-25T22:35:00+02:00",
-          source:"kaufDA Mannheim · Netto Marken-Discount",
-          prices:[{type:"offer", value:1.59, label:"Angebot ab"}],
-          note:"1,25-l-Zuordnung über den ausgewiesenen Grundpreis 1,27 €/l; regionale Abweichungen möglich."
-        }
-      }
+      marketStates:{}
     },
     {
       id:"coke150",
@@ -88,15 +53,7 @@ window.PREISSCAN_DATA = {
       image:"https://d17zv3ray5yxvp.cloudfront.net/variants/PUA9MBF1UekggKmvFrnXFChQ/51b8aa181ad15015651703a4356668224748770ff8b1ba318f5b3051f549af07",
       imageLabel:"Coca-Cola Zero 1,5 l",
       defaultAlarm:null,
-      marketStates:{
-        penny:{
-          status:"price",
-          checked:"2026-09-25T22:35:00+02:00",
-          source:"kaufDA Mannheim · PENNY-Angebot",
-          prices:[{type:"offer", value:1.29, label:"Angebot"}],
-          note:"1,5-l-Zuordnung über den ausgewiesenen Grundpreis 0,86 €/l; regionale Abweichungen möglich."
-        }
-      }
+      marketStates:{}
     },
     {
       id:"monster-rossi",
@@ -111,10 +68,7 @@ window.PREISSCAN_DATA = {
       image:"https://idrinks.cdn.shoprenter.hu/custom/idrinks/image/data/product/idrinks-monster-the-doctor-05.webp?lastmod=1727158360.1767191236",
       imageLabel:"Monster Energy Rossi Edition 0,5 l",
       defaultAlarm:null,
-      marketStates:{
-        lidl:{status:"na", checked:null},
-        aldi:{status:"na", checked:null}
-      }
+      marketStates:{}
     }
   ],
 
@@ -143,29 +97,5 @@ window.PREISSCAN_DATA = {
     }
   ],
 
-  futureOffers: [
-    {
-      productId:"coke125",
-      marketId:"netto",
-      price:5.99 / 6,
-      validFrom:"2026-10-05",
-      validUntil:"2026-10-10",
-      type:"offer",
-      matchType:"family",
-      requirement:"Nur beim Kauf eines 6er-Packs",
-      source:"Netto Wochenangebot 05.10.–10.10.2026",
-      note:"Coca-Cola 6 × 1,25 l für 5,99 €. Umgerechnet ca. 1,00 € je Flasche. Gemäß Projektregel wird ein gemeinsames Coca-Cola-Sortenangebot für Zero derselben Größe übernommen, sofern keine Ausnahme ausgewiesen ist."
-    },
-    {
-      productId:"monster-rossi",
-      marketId:"norma",
-      price:0.88,
-      validFrom:"2026-09-28",
-      validUntil:"2026-10-03",
-      type:"offer",
-      matchType:"family",
-      source:"NORMA Wochenangebot ab 28.09.",
-      note:"Monster Energy 0,5 l, verschiedene Sorten. Für VR46/The Doctor gilt der Preis nur, wenn die Sorte in der Filiale Teil des Angebots bzw. geführt ist."
-    }
-  ]
+  futureOffers: []
 };

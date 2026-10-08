@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.0
+- Preisarchitektur grundlegend bereinigt: Backend ist ab jetzt die einzige Preis-Wahrheit
+- sämtliche lokalen Test-/Fallbackpreise aus `data.js` aus der Preisberechnung entfernt
+- lokale Zukunftsangebote aus der Berechnung entfernt; kommende Angebote kommen ausschließlich vom Backend
+- Backend-Preise werden strikt als `current`, `future` oder `historical` klassifiziert
+- historische/abgelaufene Preisstände können niemals mehr den grünen aktuellen Bestpreis bestimmen
+- beobachtete Produkte ohne EAN werden nun ebenfalls über Name + Größe bei Angebotsquellen geprüft
+- neuer Angebotsadapter für aktuelle und kommende Wochenangebote über OnlineProspekt
+- Coca-Cola 1,25 l dient als Kontrollfall: REWE 1,19 € (05.–10.10.2026), Lidl 0,99 € (12.–17.10.2026)
+- Open Prices, German Supermarket Prices und GLOBUS bleiben ergänzende Quellen
+- automatisierte Quellpreise werden bei einer erfolgreichen neuen Prüfung ersetzt, damit alte Treffer nicht weiterleben
+- Scanner übergibt bei unbekannten EANs zusätzlich erkannte Produktdaten an die Preisengine
+- keine D1-Schemaänderung erforderlich
+
+
 ## v0.8.3
 - irreführenden Status „Noch nicht geprüft“ nach echten Preisabfragen beseitigt
 - jeder aktivierte Händler erhält nach einer Preisprüfung einen klaren Status

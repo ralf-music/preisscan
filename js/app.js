@@ -258,49 +258,67 @@
   }
 
   function mergeBackendPrices(localProduct, rows){
-    if(!Array.isArray(rows) || !rows.length) return;
+    if(!Array.isArray(rows)) return;
+
     const byMarket = new Map();
     const future = [];
-    const today = new Date(); today.setHours(0,0,0,0);
+
     rows.forEach(row=>{
       const marketId = retailerSlugToMarketId(row.retailer_slug,row);
       if(!marketId || row.price_eur == null) return;
-      const from = row.valid_from ? new Date(`${row.valid_from}T00:00:00`) : null;
-      const isFuture = from && from.getTime() > today.getTime();
-      if(isFuture){
+
+      const stateName = row.price_state || "current";
+
+      if(stateName === "future"){
         future.push({
           productId:localProduct.id,
           marketId,
           price:Number(row.price_eur),
-          validFrom:`ab ${formatBackendDate(row.valid_from)}`,
-          validUntil:formatBackendDate(row.valid_to),
+          validFrom:row.valid_from || null,
+          validUntil:row.valid_to || null,
           type:row.price_type || "offer",
           source:row.source_name || "Preisscan Backend",
-          note:row.condition_label || ""
+          note:row.condition_label || "",
+          requirement:row.condition_label || null
         });
         return;
       }
+
+      // Historische / veraltete Preise dürfen niemals den aktuellen Bestpreis bestimmen.
+      if(stateName !== "current") return;
+
       if(!byMarket.has(marketId)) byMarket.set(marketId,[]);
       byMarket.get(marketId).push(row);
     });
+
+    const localId = localProduct.id;
+    const currentStates = state.backend.marketStatesByLocal.get(localId) || {};
+
     for(const [marketId,items] of byMarket){
-      const localId = localProduct.id;
-      const currentStates = state.backend.marketStatesByLocal.get(localId) || {};
+      const newestChecked = items
+        .map(x=>x.checked_at || x.observed_at)
+        .filter(Boolean)
+        .sort()
+        .at(-1) || null;
+
       currentStates[marketId] = {
         status:"price",
-        checked:items.map(x=>x.observed_at).filter(Boolean).sort().at(-1) || null,
+        checked:newestChecked,
         source:items.find(x=>x.source_name)?.source_name || "Preisscan Backend",
         validFrom:items.find(x=>x.valid_from)?.valid_from || null,
         validUntil:items.find(x=>x.valid_to)?.valid_to || null,
+        note:items.find(x=>x.condition_label)?.condition_label || "",
         prices:items.map(x=>({
           type:x.price_type || "regular",
           value:Number(x.price_eur),
           label:x.price_type === "app" ? "App-Preis" : x.price_type === "coupon" ? "Coupon" : x.price_type === "offer" ? "Angebot" : "Regulär",
-          requirement:x.condition_label || null
+          requirement:x.condition_label || null,
+          backend:true
         }))
       };
-      state.backend.marketStatesByLocal.set(localId,currentStates);
     }
+
+    state.backend.marketStatesByLocal.set(localId,currentStates);
     state.backend.futureOffers.push(...future);
   }
 
@@ -496,9 +514,12 @@
     })();
     const backendItem = state.backend.products.find(x=>localIdForBackendProduct(x)===id);
     const backendStates = state.backend.marketStatesByLocal.get(id) || {};
-    if(base && backendItem) return {...base, ...backendProductToLocal(backendItem), marketStates:{...(base.marketStates || {}), ...backendStates}};
-    if(base) return {...base, marketStates:{...(base.marketStates || {}), ...backendStates}};
-    if(backendItem) return {...backendProductToLocal(backendItem), marketStates:backendStates};
+
+    // Ab v0.9.0 ist das Backend die einzige Preis-Wahrheit.
+    // Lokale Produktdefinitionen liefern nur Name/Bild/Größe, niemals Preise.
+    if(base && backendItem) return {...base, ...backendProductToLocal(backendItem), marketStates:{...backendStates}};
+    if(base) return {...base, marketStates:{...backendStates}};
+    if(backendItem) return {...backendProductToLocal(backendItem), marketStates:{...backendStates}};
     return null;
   }
 
@@ -623,7 +644,8 @@
   }
 
   function scheduledOffers(product){
-    return [...DATA.futureOffers, ...state.backend.futureOffers]
+    // Keine fest eingebauten Test-/Demoangebote mehr. Zukunftspreise kommen nur noch vom Backend.
+    return [...state.backend.futureOffers]
       .filter(x=>x.productId===product.id && isMarketEnabled(marketById(x.marketId)));
   }
 
@@ -979,7 +1001,7 @@
                 <button class="text-action danger" data-untrack="${escapeAttr(product.id)}">Produkt löschen</button>
               </div>
               <div class="best-block">
-                <span>günstigster Preis</span>
+                <span>günstigster aktueller Preis</span>
                 <strong>${best ? eur(best.option.value) : "—"}</strong>
                 <span>${best ? `${escapeHtml(best.market.name)}${bestReq ? ` · ${escapeHtml(priceTypeText(best.option))}` : ""}` : "noch keine Preisquelle"}</span>
                 ${best ? `<small>${escapeHtml(best.market.branch || best.market.area || "")}</small>` : ``}
@@ -1154,14 +1176,21 @@
     return market?.name || hit?.retailer_name || hit?.retailer_slug || "Händler";
   }
 
-  async function lookupScannedPrices(code, productId=null){
+  async function lookupScannedPrices(code, productId=null, candidate=null){
     if(!API || !state.backend.connected) return;
     state.scanner.priceLoading = true;
     state.scanner.priceError = null;
     state.scanner.prices = null;
     renderScanner();
     try{
-      state.scanner.prices = await API.lookupPrices(code, postcodeForLookup(), productId);
+      const extra = candidate ? {
+        name:candidate.name || candidate.product?.name || null,
+        brand:candidate.brand || candidate.product?.brand || null,
+        amount_value:candidate.amount ?? candidate.product?.amount_value ?? null,
+        amount_unit:candidate.unit || candidate.product?.amount_unit || null,
+        family_slug:candidate.family || candidate.product?.family_slug || null
+      } : {};
+      state.scanner.prices = await API.lookupPrices(code, postcodeForLookup(), productId, extra);
       if(productId){
         await syncBackend(false);
         const localId = state.backend.localIdByBackend.get(Number(productId));
@@ -1440,7 +1469,7 @@
       }
       renderScanner();
       scannerStatus(`EAN ${code} erkannt · Preise werden verglichen …`);
-      await lookupScannedPrices(code,null);
+      await lookupScannedPrices(code,null,state.scanner.candidate);
       scannerStatus("Produkt erkannt · Preisvergleich abgeschlossen.");
       renderScanner();
       requestAnimationFrame(()=>{
