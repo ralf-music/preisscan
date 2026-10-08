@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.10.0
+- Händler-Adapter-Status eingeführt: jeder aktive Händler erhält nach einer Prüfung einen eigenen Status
+- Preis gefunden, nur kommendes Angebot, geprüft ohne Treffer, Quelle gestört, nur alter Preisstand und noch nicht angebunden werden getrennt
+- die App markiert nicht mehr pauschal alle Händler als geprüft
+- Preisprüfung speichert den tatsächlichen Händlerstatus pro Produkt lokal
+- mehrere Marktkauf-Filialen übernehmen den Status ihrer Händlerkette, solange noch keine filialgenaue Quelle vorliegt
+- Übersicht zeigt jetzt getrennt „geprüft ohne aktuellen Preis“ und „noch nicht vollständig angebunden“
+- Preisvergleich zeigt den tatsächlichen Adapterstatus pro Händler/Filiale
+- API 0.7.0 liefert `retailer_results` für jeden aktivierten Händler
+- D1-Schema bleibt unverändert bei Version 3
+
+
 ## v0.9.0
 - Preisarchitektur grundlegend bereinigt: Backend ist ab jetzt die einzige Preis-Wahrheit
 - sämtliche lokalen Test-/Fallbackpreise aus `data.js` aus der Preisberechnung entfernt

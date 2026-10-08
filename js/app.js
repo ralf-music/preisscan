@@ -5,6 +5,7 @@
   const LOCATION_KEY = "preisscan.location.v1";
   const RETAILER_PREFS_KEY = "preisscan.retailerPrefs.v1";
   const PRICE_CHECKS_KEY = "preisscan.priceChecks.v1";
+  const RETAILER_SCAN_KEY = "preisscan.retailerScan.v1";
   const LEGACY_EXTRA_KEY = "preisscan.trackedExtra.v1";
   const API = window.PREISSCAN_API;
 
@@ -35,6 +36,7 @@
     locationEditing: !(localStorage.getItem(LOCATION_KEY) || ""),
     retailerPrefs: loadJSON(RETAILER_PREFS_KEY, {}),
     priceChecks: loadJSON(PRICE_CHECKS_KEY, {}),
+    retailerScan: loadJSON(RETAILER_SCAN_KEY, {}),
     currentView: "overview",
     familyQuery: "",
     backend: {
@@ -185,6 +187,53 @@
     if(market.id === "scheck-bruehl") return "scheck-in";
     if(["marktkauf","mk-wohl","mk-neck"].includes(market.id)) return "marktkauf";
     return market.id;
+  }
+
+  function marketIdsForRetailerSlug(slug){
+    return DATA.markets
+      .filter(market=>marketRetailerSlug(market)===slug)
+      .map(market=>market.id);
+  }
+
+  function saveRetailerScan(){
+    saveJSON(RETAILER_SCAN_KEY, state.retailerScan);
+  }
+
+  function retailerScanFor(localProductId, marketId){
+    return state.retailerScan?.[localProductId]?.[marketId] || null;
+  }
+
+  function applyRetailerScanResults(localProductId, rows, checkedAt){
+    if(!localProductId || !Array.isArray(rows)) return;
+
+    const next = {
+      ...(state.retailerScan?.[localProductId] || {})
+    };
+
+    for(const row of rows){
+      const ids = marketIdsForRetailerSlug(row.retailer_slug);
+
+      ids.forEach(marketId=>{
+        next[marketId] = {
+          status:row.status || "unsupported",
+          message:row.message || "",
+          checked_at:row.checked_at || checkedAt || null,
+          retailer_slug:row.retailer_slug,
+          current_count:Array.isArray(row.current_prices) ? row.current_prices.length : 0,
+          future_count:Array.isArray(row.future_prices) ? row.future_prices.length : 0,
+          historical_count:Array.isArray(row.historical_prices) ? row.historical_prices.length : 0,
+          coverage:row.coverage || {},
+          sources:Array.isArray(row.sources) ? row.sources : []
+        };
+      });
+    }
+
+    state.retailerScan = {
+      ...state.retailerScan,
+      [localProductId]:next
+    };
+
+    saveRetailerScan();
   }
 
   function retailerEnabledBySlug(slug){
@@ -515,7 +564,7 @@
     const backendItem = state.backend.products.find(x=>localIdForBackendProduct(x)===id);
     const backendStates = state.backend.marketStatesByLocal.get(id) || {};
 
-    // Ab v0.9.0 ist das Backend die einzige Preis-Wahrheit.
+    // Ab v0.10.0 ist das Backend die einzige Preis-Wahrheit.
     // Lokale Produktdefinitionen liefern nur Name/Bild/Größe, niemals Preise.
     if(base && backendItem) return {...base, ...backendProductToLocal(backendItem), marketStates:{...backendStates}};
     if(base) return {...base, marketStates:{...backendStates}};
@@ -693,33 +742,69 @@
       };
     }
 
-    // Explizite Aussagen wie "nicht im Sortiment" oder "unklar"
-    // bleiben stärker als ein allgemeiner Scan ohne Treffer.
     if(base.status === "na" || base.status === "unknown"){
       return base;
     }
 
     const currentPrices = priceOptions(base);
-
     if(currentPrices.length){
       return base;
     }
 
-    const lastRealCheck = productMarketCheck(product.id, marketId);
+    const scan = retailerScanFor(product.id, marketId);
 
-    // Eine echte Preisprüfung lief, aber es wurde für diesen Händler
-    // kein belastbarer aktueller Preis gefunden.
-    if(lastRealCheck){
-      return {
-        status:"no_data",
-        checked:lastRealCheck,
-        source:"Angebundene Preisquellen geprüft",
-        note:"Kein belastbarer aktueller Preis für diesen Händler gefunden.",
-        prices:[]
-      };
+    if(scan){
+      if(scan.status === "future_only"){
+        return {
+          status:"future_only",
+          checked:scan.checked_at,
+          source:"Händler-Adapter",
+          note:scan.message,
+          prices:[]
+        };
+      }
+
+      if(scan.status === "no_price"){
+        return {
+          status:"no_data",
+          checked:scan.checked_at,
+          source:"Händler-Adapter",
+          note:scan.message,
+          prices:[]
+        };
+      }
+
+      if(scan.status === "source_error"){
+        return {
+          status:"source_error",
+          checked:scan.checked_at,
+          source:"Händler-Adapter",
+          note:scan.message,
+          prices:[]
+        };
+      }
+
+      if(scan.status === "unsupported"){
+        return {
+          status:"unsupported",
+          checked:scan.checked_at,
+          source:"Händler-Adapter",
+          note:scan.message,
+          prices:[]
+        };
+      }
+
+      if(scan.status === "historical_only"){
+        return {
+          status:"stale",
+          checked:scan.checked_at,
+          source:"Händler-Adapter",
+          note:scan.message,
+          prices:[]
+        };
+      }
     }
 
-    // Es gab einmal einen Preis, aber er ist inzwischen abgelaufen/veraltet.
     if(base.status === "price" && rawPriceOptions(base).length){
       return {
         ...base,
@@ -863,6 +948,9 @@
       unknown: rows.filter(e=>e.status==="unknown").length,
       noData: rows.filter(e=>e.status==="no_data").length,
       stale: rows.filter(e=>e.status==="stale").length,
+      futureOnly: rows.filter(e=>e.status==="future_only").length,
+      sourceError: rows.filter(e=>e.status==="source_error").length,
+      unsupported: rows.filter(e=>e.status==="unsupported").length,
       unchecked: rows.filter(e=>e.status==="unchecked").length
     };
   }
@@ -1019,8 +1107,8 @@
               </div>
               <div class="metric-grid spaced">
                 <div class="metric"><b>Höchster gemeldeter Preis</b><strong>${worst ? eur(worst.option.value) : "—"}</strong><small>${worst ? `${escapeHtml(worst.market.name)} · ${escapeHtml(priceTypeText(worst.option))}` : "keine Daten"}</small></div>
-                <div class="metric"><b>Keine aktuellen Preisdaten</b><strong>${counts.noData + counts.stale}</strong><small>${counts.stale ? `${counts.stale} veraltete Preisstände` : "bei Prüfung kein Preis gefunden"}</small></div>
-                <div class="metric"><b>Noch nie geprüft</b><strong>${counts.unchecked}</strong><small>noch keine Preisabfrage durchgeführt</small></div>
+                <div class="metric"><b>Geprüft ohne aktuellen Preis</b><strong>${counts.noData + counts.stale + counts.futureOnly}</strong><small>${counts.futureOnly ? `${counts.futureOnly} nur mit kommendem Angebot` : counts.stale ? `${counts.stale} nur mit altem Preisstand` : "kein aktueller Treffer"}</small></div>
+                <div class="metric"><b>Noch nicht vollständig angebunden</b><strong>${counts.unsupported + counts.sourceError + counts.unchecked}</strong><small>${counts.sourceError ? `${counts.sourceError} Quellen gestört` : counts.unsupported ? `${counts.unsupported} Händler ohne passende Quelle` : "noch keine Händlerprüfung"}</small></div>
               </div>
               <div class="future-box">
                 <h4>Kommende Angebote</h4>
@@ -1071,8 +1159,20 @@
                 statusClass="no-data";
               }
               else if(entry.status === "stale"){
-                statusLabel="Preisstand veraltet";
+                statusLabel="Nur älterer Preisstand";
                 statusClass="stale";
+              }
+              else if(entry.status === "future_only"){
+                statusLabel="Nur kommendes Angebot";
+                statusClass="future-only";
+              }
+              else if(entry.status === "source_error"){
+                statusLabel="Preisquelle gestört";
+                statusClass="source-error";
+              }
+              else if(entry.status === "unsupported"){
+                statusLabel="Preisquelle noch nicht angebunden";
+                statusClass="unsupported";
               }
               return `<tr>
                 <td><div class="market-cell">${marketLogo(market)}<div class="market-copy"><strong>${escapeHtml(market.name)}</strong>${market.branch ? `<small>${escapeHtml(market.branch)}</small>` : `<small>${escapeHtml(market.area)}</small>`}</div></div></td>
@@ -1195,8 +1295,9 @@
         await syncBackend(false);
         const localId = state.backend.localIdByBackend.get(Number(productId));
         if(localId){
-          markProductMarketsChecked(
+          applyRetailerScanResults(
             localId,
+            state.scanner.prices?.retailer_results || [],
             state.scanner.prices?.checked_at || new Date().toISOString()
           );
         }
@@ -1921,7 +2022,11 @@
       (result.results || []).forEach(row=>{
         const localId = state.backend.localIdByBackend.get(Number(row.product_id));
         if(localId){
-          markProductMarketsChecked(localId, checkedAt);
+          applyRetailerScanResults(
+            localId,
+            row.retailer_results || [],
+            checkedAt
+          );
         }
       });
 

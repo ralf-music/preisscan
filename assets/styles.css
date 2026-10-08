@@ -273,3 +273,19 @@ th{color:var(--muted);text-transform:uppercase;letter-spacing:.035em;font-size:.
   background:rgba(255,180,84,.08);
   border-color:rgba(255,180,84,.22)
 }
+
+.status-tag.future-only{
+  color:#ffd68c;
+  background:rgba(255,193,92,.09);
+  border-color:rgba(255,193,92,.28)
+}
+.status-tag.source-error{
+  color:#ff9c9c;
+  background:rgba(255,83,83,.08);
+  border-color:rgba(255,83,83,.26)
+}
+.status-tag.unsupported{
+  color:#b6c1cf;
+  background:rgba(126,142,160,.08);
+  border-color:rgba(126,142,160,.22)
+}
