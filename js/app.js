@@ -564,7 +564,7 @@
     const backendItem = state.backend.products.find(x=>localIdForBackendProduct(x)===id);
     const backendStates = state.backend.marketStatesByLocal.get(id) || {};
 
-    // Ab v0.10.0 ist das Backend die einzige Preis-Wahrheit.
+    // Ab v0.10.1 ist das Backend die einzige Preis-Wahrheit.
     // Lokale Produktdefinitionen liefern nur Name/Bild/Größe, niemals Preise.
     if(base && backendItem) return {...base, ...backendProductToLocal(backendItem), marketStates:{...backendStates}};
     if(base) return {...base, marketStates:{...backendStates}};

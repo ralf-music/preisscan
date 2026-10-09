@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.10.0
+## v0.10.1
 - Händler-Adapter-Status eingeführt: jeder aktive Händler erhält nach einer Prüfung einen eigenen Status
 - Preis gefunden, nur kommendes Angebot, geprüft ohne Treffer, Quelle gestört, nur alter Preisstand und noch nicht angebunden werden getrennt
 - die App markiert nicht mehr pauschal alle Händler als geprüft

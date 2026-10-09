@@ -21,7 +21,8 @@
     if(!BASE_URL) throw new Error("API-Adresse fehlt.");
 
     const controller = new AbortController();
-    const timeout = setTimeout(()=>controller.abort(), 12000);
+    const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 12000;
+    const timeout = setTimeout(()=>controller.abort(), timeoutMs);
 
     const headers = {
       "Accept":"application/json",
@@ -201,12 +202,20 @@
 
     lookupPrices: (gtin,postcode=null,productId=null,extra={})=>userRequest(
       "/api/me/prices/lookup",
-      {method:"POST", body:{gtin,postcode,product_id:productId,...extra}}
+      {
+        method:"POST",
+        body:{gtin,postcode,product_id:productId,...extra},
+        timeoutMs:20000
+      }
     ),
 
     scanTrackedPrices: postcode=>userRequest(
       "/api/me/prices/scan",
-      {method:"POST", body:{postcode}}
+      {
+        method:"POST",
+        body:{postcode},
+        timeoutMs:30000
+      }
     ),
 
     openFoodFactsProduct,
