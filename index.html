@@ -1,87 +1,393 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0d1117">
-  <meta name="description" content="Private Einkaufshilfe und Preisübersicht mit Preisvergleich und Preiswecker.">
-  <title>Einkaufshilfe – preisscan</title>
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="assets/styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#090d12" />
+  <title>Preisscan – Projekt eingestellt</title>
+
+  <style>
+    :root{
+      --bg:#090d12;
+      --panel:#111821;
+      --panel-2:#171f2a;
+      --border:#263241;
+      --text:#f4f7fb;
+      --muted:#98a6b7;
+      --red:#ff4d5d;
+      --red-soft:rgba(255,77,93,.12);
+      --shadow:0 24px 80px rgba(0,0,0,.55);
+    }
+
+    *{box-sizing:border-box}
+
+    html,body{
+      margin:0;
+      min-height:100%;
+      background:
+        radial-gradient(circle at top, rgba(74,102,140,.12), transparent 36%),
+        linear-gradient(180deg,#0a0f15 0%,#080b10 100%);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+
+    body{min-height:100vh}
+
+    .app{
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      opacity:.42;
+      filter:blur(1px);
+      pointer-events:none;
+      user-select:none;
+    }
+
+    .topbar{
+      width:min(1180px,calc(100% - 36px));
+      margin:0 auto;
+      padding:28px 0 18px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:20px;
+    }
+
+    .brand{display:flex;align-items:center;gap:16px}
+
+    .brand-mark{
+      width:62px;
+      height:62px;
+      border-radius:17px;
+      border:1px solid #304052;
+      background:linear-gradient(145deg,#0d1722,#152537);
+      display:grid;
+      place-items:center;
+      font-weight:900;
+      letter-spacing:.08em;
+      color:#7bd6ff;
+      box-shadow:inset 0 0 24px rgba(63,167,255,.08);
+    }
+
+    .brand-text small{
+      display:block;
+      color:#63cfff;
+      letter-spacing:.18em;
+      font-weight:800;
+      margin-bottom:4px;
+    }
+
+    .brand-text h1{
+      margin:0;
+      font-size:clamp(1.9rem,4vw,3rem);
+      line-height:1;
+    }
+
+    .status{
+      border:1px solid rgba(255,77,93,.35);
+      background:var(--red-soft);
+      color:#ff9ca5;
+      border-radius:999px;
+      padding:10px 14px;
+      font-size:.86rem;
+      font-weight:800;
+    }
+
+    .content{
+      width:min(1180px,calc(100% - 36px));
+      margin:0 auto 60px;
+      display:grid;
+      gap:20px;
+    }
+
+    .hero{
+      border:1px solid var(--border);
+      border-radius:28px;
+      padding:36px;
+      background:linear-gradient(145deg,#121922,#151d28);
+      box-shadow:0 18px 50px rgba(0,0,0,.22);
+    }
+
+    .hero span{
+      color:#62ccff;
+      font-weight:800;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      font-size:.78rem;
+    }
+
+    .hero h2{
+      margin:12px 0 10px;
+      font-size:clamp(2rem,5vw,4rem);
+    }
+
+    .hero p{
+      margin:0;
+      color:var(--muted);
+      max-width:760px;
+      font-size:1.08rem;
+      line-height:1.65;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:16px;
+    }
+
+    .card{
+      min-height:150px;
+      border:1px solid var(--border);
+      border-radius:22px;
+      padding:22px;
+      background:#10161f;
+    }
+
+    .card strong{display:block;font-size:1.5rem;margin-bottom:10px}
+    .card span{color:var(--muted);line-height:1.5}
+
+    .overlay{
+      position:fixed;
+      inset:0;
+      z-index:50;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+      background:rgba(4,7,10,.72);
+      backdrop-filter:blur(10px);
+    }
+
+    .modal{
+      width:min(760px,100%);
+      max-height:calc(100vh - 40px);
+      overflow:auto;
+      border:1px solid rgba(255,77,93,.34);
+      border-radius:30px;
+      background:linear-gradient(180deg,rgba(31,17,21,.98),rgba(15,18,24,.99));
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.02),
+        0 0 70px rgba(255,77,93,.16),
+        var(--shadow);
+      padding:34px;
+    }
+
+    .eyebrow{
+      display:inline-flex;
+      align-items:center;
+      gap:9px;
+      color:#ff9aa3;
+      border:1px solid rgba(255,77,93,.28);
+      background:rgba(255,77,93,.08);
+      padding:8px 12px;
+      border-radius:999px;
+      font-size:.75rem;
+      font-weight:900;
+      letter-spacing:.13em;
+      text-transform:uppercase;
+    }
+
+    .dot{
+      width:8px;
+      height:8px;
+      border-radius:50%;
+      background:var(--red);
+      box-shadow:0 0 14px rgba(255,77,93,.8);
+    }
+
+    .modal h2{
+      margin:18px 0 10px;
+      color:var(--red);
+      font-size:clamp(2.2rem,7vw,4.6rem);
+      line-height:.98;
+      letter-spacing:-.04em;
+      text-wrap:balance;
+    }
+
+    .lead{
+      margin:0 0 24px;
+      font-size:1.1rem;
+      line-height:1.72;
+      color:#e8edf3;
+    }
+
+    details{
+      border:1px solid #313a47;
+      border-radius:18px;
+      background:rgba(255,255,255,.025);
+      overflow:hidden;
+      margin-top:18px;
+    }
+
+    summary{
+      cursor:pointer;
+      list-style:none;
+      padding:18px 20px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:18px;
+      font-weight:850;
+      color:#f1f4f8;
+    }
+
+    summary::-webkit-details-marker{display:none}
+
+    summary::after{
+      content:"+";
+      flex:0 0 auto;
+      width:30px;
+      height:30px;
+      border-radius:9px;
+      display:grid;
+      place-items:center;
+      color:#ff8e99;
+      background:rgba(255,77,93,.08);
+      border:1px solid rgba(255,77,93,.2);
+      font-size:1.2rem;
+      transition:.2s ease;
+    }
+
+    details[open] summary::after{content:"–"}
+
+    .details-body{
+      padding:0 20px 20px;
+      color:#b7c1ce;
+      line-height:1.72;
+      border-top:1px solid rgba(255,255,255,.05);
+    }
+
+    .details-body p{margin:16px 0 0}
+
+    .final-note{
+      margin-top:24px;
+      border-left:4px solid var(--red);
+      background:rgba(255,77,93,.07);
+      border-radius:0 16px 16px 0;
+      padding:16px 18px;
+      color:#ffd6da;
+      font-weight:700;
+      line-height:1.6;
+    }
+
+    .footer{
+      margin-top:24px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:14px;
+      flex-wrap:wrap;
+      color:#7f8b99;
+      font-size:.82rem;
+    }
+
+    .dead{color:#ff7d89;font-weight:800}
+
+    @media (max-width:760px){
+      .grid{grid-template-columns:1fr}
+      .topbar{align-items:flex-start}
+      .status{font-size:.72rem}
+      .modal{padding:26px 22px;border-radius:24px}
+      .lead{font-size:1rem}
+    }
+  </style>
 </head>
+
 <body>
-  <div class="app-shell">
-    <header class="app-header">
-      <div class="brand-lockup">
-        <img class="app-logo" src="assets/icons/preisscan-app.png" alt="Preisscan App-Logo">
-        <div>
-          <div class="eyebrow">preisscan</div>
+  <main class="app" aria-hidden="true">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">PS</div>
+        <div class="brand-text">
+          <small>PREISSCAN</small>
           <h1>Einkaufshilfe</h1>
-          <p id="locationSummary">Standort noch nicht festgelegt</p>
         </div>
       </div>
-      <div class="header-actions">
-        <span class="backend-badge pending" id="backendBadge">Backend wird geprüft</span>
-        <span class="version-badge">v0.10.1</span>
-        <button id="installBtn" class="ghost-btn" hidden>Installieren</button>
-      </div>
+      <div class="status">Projekt eingestellt</div>
     </header>
 
-    <section class="hero-panel scanner-first-hero">
-      <div class="hero-scan-copy">
-        <span class="hero-kicker">Hauptfunktion</span>
-        <h2>Barcode scannen. Preise vergleichen. Günstiger einkaufen.</h2>
-        <p>Produkt im Laden scannen und direkt prüfen, welche angebundenen Händler und Preisquellen einen aktuellen oder bekannten Preis melden. Danach kannst du das Produkt dauerhaft beobachten.</p>
-        <button id="heroScanBtn" class="hero-scan-btn"><span class="hero-scan-icon" aria-hidden="true">▥</span><span><strong>Produkt jetzt scannen</strong><small>Kamera öffnen und EAN erfassen</small></span></button>
+    <section class="content">
+      <div class="hero">
+        <span>Preisscan</span>
+        <h2>Preise vergleichen. Produkte beobachten.</h2>
+        <p>
+          Die Idee war simpel: Produkt scannen, Händlerpreise vergleichen
+          und Preisentwicklungen dauerhaft beobachten.
+        </p>
       </div>
-      <div class="hero-stats">
-        <div><strong id="productCount">0</strong><span>beobachtet</span></div>
-        <div><strong id="marketCount">0</strong><span>Händler aktiv</span></div>
-        <div><strong id="knownPriceCount">0</strong><span>Preisstände</span></div>
+
+      <div class="grid">
+        <div class="card">
+          <strong>Barcode-Scan</strong>
+          <span>Produkte per Kamera erkennen.</span>
+        </div>
+        <div class="card">
+          <strong>Preisvergleich</strong>
+          <span>Preise verschiedener Händler zusammenführen.</span>
+        </div>
+        <div class="card">
+          <strong>Preisbeobachtung</strong>
+          <span>Produkte dauerhaft im Blick behalten.</span>
+        </div>
       </div>
     </section>
+  </main>
 
-    <div id="locationBar"></div>
+  <div class="overlay">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="shutdown-title">
+      <div class="eyebrow">
+        <span class="dot"></span>
+        Projektstatus
+      </div>
 
-    <div class="toolbar">
-      <input id="searchInput" type="search" placeholder="Beobachtete Produkte, Händler oder Ort suchen">
-      <select id="productFilter" aria-label="Produktfilter">
-        <option value="all">Alle beobachteten Produkte</option>
-      </select>
-      <button id="scanBtn" class="scan-main-btn">Barcode scannen</button>
-      <button id="refreshBtn" class="primary-btn">Preise prüfen</button>
-    </div>
+      <h2 id="shutdown-title">Einstellung von Preisscan</h2>
 
-    <nav class="tabs" aria-label="Navigation">
-      <button class="tab active" data-view="overview">Übersicht</button>
-      <button class="tab" data-view="comparison">Preisvergleich</button>
-      <button class="tab" data-view="scanner">Scanner</button>
-      <button class="tab" data-view="search">Produktsuche</button>
-      <button class="tab" data-view="alerts">Preiswecker</button>
-      <button class="tab" data-view="settings">Einstellungen</button>
-    </nav>
+      <p class="lead">
+        Leider muss ich mitteilen, dass dieses Projekt aufgrund technischer
+        Schwierigkeiten an dieser Stelle eingestellt werden muss.
+      </p>
 
-    <main>
-      <section id="overviewView" class="view active"></section>
-      <section id="comparisonView" class="view"></section>
-      <section id="scannerView" class="view"></section>
-      <section id="searchView" class="view"></section>
-      <section id="alertsView" class="view"></section>
-      <section id="settingsView" class="view"></section>
-    </main>
+      <details open>
+        <summary>Warum wird Preisscan eingestellt?</summary>
+        <div class="details-body">
+          <p>
+            Die Grundidee von Preisscan war, Produkte per Barcode zu erkennen
+            und anschließend möglichst zuverlässig die aktuellen Preise bei
+            verschiedenen Einzelhändlern abzurufen und miteinander zu vergleichen.
+          </p>
 
-    <footer class="app-footer">
-      <span>preisscan v0.10.1</span>
-      <span id="backendFooter">Backend wird geprüft …</span>
-    </footer>
+          <p>
+            Genau an diesem Punkt stößt das Projekt jedoch an eine Grenze:
+            Es gibt leider keine öffentliche, zentrale und ausreichend vollständige
+            Preisbibliothek, über die sich die Preise des Einzelhandels
+            zuverlässig und einheitlich abrufen lassen.
+          </p>
+
+          <p>
+            Einzelne Händler stellen bestimmte Preise oder Angebote öffentlich
+            bereit, andere wiederum nur teilweise, regional unterschiedlich
+            oder gar nicht. Dadurch wäre ein Preisvergleich bei vielen Artikeln
+            zwangsläufig unvollständig, veraltet oder nicht zuverlässig genug.
+          </p>
+
+          <p>
+            Für eine Anwendung, deren wichtigste Funktion ein verlässlicher
+            Preisvergleich sein soll, ist das auf Dauer keine brauchbare Grundlage.
+          </p>
+        </div>
+      </details>
+
+      <div class="final-note">
+        Daher stirbt dieses Projekt leider an dieser Stelle.
+        Die Idee war gut, die verfügbare Datenbasis leider nicht.
+      </div>
+
+      <div class="footer">
+        <span>Preisscan</span>
+        <span class="dead">Projekt eingestellt</span>
+        <span>Stand: 10.10.2026</span>
+      </div>
+    </section>
   </div>
-
-  <div id="toast" class="toast" role="status"></div>
-
-  <script src="js/data.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/app.js"></script>
 </body>
 </html>
